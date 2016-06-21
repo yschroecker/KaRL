@@ -2,11 +2,11 @@ import tensorflow as tf
 import sys
 import gym
 from q_network import QNetwork
-from algorithms.dqn import dqn
+from algorithms.dqn import DQN
 
 with tf.Session() as session:
     q_network = QNetwork()
-    learner = dqn(q_network, 0.5, 0.1, 1)  # TODO: check discount factor = 1
+    learner = DQN(q_network, 0.5, 0.1, 1)  # TODO: check discount factor = 1
 
     session.run(tf.initialize_all_variables())
 

@@ -20,7 +20,6 @@ def simple_q_learning(q_table, state, action, next_state, reward):
         max_action(q_table, next_state)][next_state[1]][next_state[0]]
 
 if __name__ == '__main__':
-    np.random.seed(0)
     current_q_table = np.ones((num_actions, width, height)) * 1
 
     current_state = (0, 0)
