@@ -10,28 +10,46 @@ class DQN:
         self._action = tf.placeholder(tf.float32, shape=q_network.action_dim, name="action")
         self._reward = tf.placeholder(tf.float32, shape=[])
 
-        with tf.variable_scope("q_network"):
+        with tf.variable_scope('online_network'):
             self._q = self._q_network.build_network(self._state, self._action)
 
-        with tf.variable_scope("q_network", reuse=True):
+        with tf.variable_scope('target_network') as scope:
+            next_q_values = []
+            for action in self._q_network.discretized_actions:
+                next_q_values.append(self._q_network.build_network(self._next_state, tf.constant(action,
+                                                                                                 dtype=tf.float32)))
+                scope.reuse_variables()
+
+            self._max_next_q = tf.reduce_max(tf.pack(next_q_values), 0)
+
+        with tf.variable_scope('target_network', reuse=True):
             q_values = tf.pack([self._q_network.build_network(self._state, tf.constant(action, dtype=tf.float32))
                                 for action in self._q_network.discretized_actions])
             self._max_action = tf.squeeze(tf.gather(self._q_network.discretized_actions, tf.argmax(q_values, 0)))
 
-        with tf.variable_scope("q_network", reuse=True):
-            next_q_values = tf.pack([self._q_network.build_network(self._next_state, tf.constant(action, dtype=tf.float32))
-                                     for action in self._q_network.discretized_actions])
-            self._max_next_q = tf.reduce_max(next_q_values, 0)
-
-        td_error = self._reward + discount_factor * self._max_next_q - self._q
+        td_error = 0.5 * (self._reward + discount_factor * self._max_next_q - self._q)**2
 
         self._optimizer = tf.train.GradientDescentOptimizer(tf.cast(learning_rate, tf.float32))
-        td_gradient = self._optimizer.compute_gradients(td_error)
+        td_gradient = self._optimizer.compute_gradients(td_error, self._scope_collection('online_network'))
+
+        tf.histogram_summary("td error", td_error)
         self._update_op = self._optimizer.apply_gradients(td_gradient)
 
+    @staticmethod
+    def _scope_collection(scope):
+        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
+
+    def _copy_weights(self):
+        ops = []
+        with tf.variable_scope('target_network', reuse=True):
+            for variable in self._scope_collection('online_network'):
+                ops.append(tf.get_variable(variable.name.split('/', 1)[1].split(':', 1)[0]).assign(variable))
+        return ops
+
     def update(self, state, action, reward, next_state):
-        tf.get_default_session().run(self._update_op, feed_dict={self._state: state, self._action: action,
-                                                                 self._next_state: next_state, self._reward: reward})
+        tf.get_default_session().run([self._update_op] + self._copy_weights(),
+                                     feed_dict={self._state: state, self._action: action,
+                                                self._next_state: next_state, self._reward: reward})
 
     def max_action(self, state):
         return self._max_action.eval(feed_dict={self._state: state})

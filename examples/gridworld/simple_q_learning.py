@@ -16,8 +16,9 @@ def epsilon_greedy(q_table, state, epsilon):
 
 
 def simple_q_learning(q_table, state, action, next_state, reward):
-    q_table[action][state[1]][state[0]] = reward + discount_factor * q_table[
-        max_action(q_table, next_state)][next_state[1]][next_state[0]]
+    td_error = reward + discount_factor * q_table[
+        max_action(q_table, next_state)][next_state[1]][next_state[0]] - q_table[action][state[1]][state[0]]
+    q_table[action][state[1]][state[0]] += td_error
 
 if __name__ == '__main__':
     current_q_table = np.ones((num_actions, width, height)) * 1
