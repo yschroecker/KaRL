@@ -31,7 +31,7 @@ if __name__ == '__main__':
     with tf.device('/cpu:0'):
         with tf.Session() as session:
             q_network = PseudoQNetwork()
-            learner = dqn.DQN(q_network, 1, discount_factor, dqn.UniformExperienceReplayMemory())
+            learner = dqn.DQN(q_network, 1, discount_factor, dqn.UniformExperienceReplayMemory(), freeze_interval=1)
             eps_greedy = dqn.EpsilonGreedy(learner, 0.1, 0.95, 0.1)
 
             session.run(tf.initialize_all_variables())
