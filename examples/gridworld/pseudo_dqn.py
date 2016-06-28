@@ -12,15 +12,15 @@ class PseudoQNetwork:
         self.state_dim = []
 
     @staticmethod
-    def build_network(state, action):
-        state = tf.cast(state, tf.int64)
-        action = tf.cast(action, tf.int64)
-        state_action = tf.one_hot(num_actions * state + action, num_actions * width * height, 1, 0)
+    def build_network(states, actions):
+        states = tf.cast(states, tf.int64)
+        actions = tf.cast(actions, tf.int64)
+        state_action = tf.one_hot(num_actions * states + actions, num_actions * width * height, 1, 0, axis=-1)
         input_dim = width * height * num_actions
-        state_action = tf.reshape(tf.cast(state_action, tf.float32), [1, input_dim])
+        state_action = tf.reshape(tf.cast(state_action, tf.float32), [-1, input_dim])
 
         weights = tf.get_variable("weights", shape=[input_dim, 1], initializer=tf.constant_initializer(1))
-        return tf.matmul(state_action, weights)
+        return tf.matmul(state_action, weights)[:, 0]
 
 
 def state_index(state):
@@ -31,8 +31,8 @@ if __name__ == '__main__':
     with tf.device('/cpu:0'):
         with tf.Session() as session:
             q_network = PseudoQNetwork()
-            learner = dqn.DQN(q_network, 1, discount_factor)
-            eps_greedy = dqn.EpsilonGreedy(learner, 1, 0.95, 0.1)
+            learner = dqn.DQN(q_network, 1, discount_factor, dqn.UniformExperienceReplayMemory())
+            eps_greedy = dqn.EpsilonGreedy(learner, 0.1, 0.95, 0.1)
 
             session.run(tf.initialize_all_variables())
 
@@ -60,10 +60,12 @@ if __name__ == '__main__':
                 else:
                     current_state = next_state_
 
+                '''
                 summary_writer.add_summary(
                     session.run(tf.merge_all_summaries(), feed_dict={
                         learner._state: state_index(current_state), learner._action: action_,
                         learner._next_state: state_index(next_state_), learner._reward: reward_
                     }))
+                    '''
 
 
