@@ -15,11 +15,11 @@ class UniformExperienceReplayMemory:
             self._size = min(self._size + 1, self._ringbuffer.shape[0])
 
         def sample(self, num_samples):
-            indices = np.random.choice(np.arange(self._size), num_samples)
+            indices = np.random.choice(self._size, num_samples)
             return self._ringbuffer[indices, :]
 
     def __init__(self, buffer_size=1, mini_batch_size=1):
-        self._buffer = self.RingBuffer(buffer_size, 4)  # not a deque to avoid casting between lists and numpy arrays
+        self._buffer = self.RingBuffer(buffer_size, 4)  # not a deque to avoid converting between lists and numpy arrays
         self._mini_batch_size = mini_batch_size
 
     def add_sample(self, state, action, next_state, reward):
