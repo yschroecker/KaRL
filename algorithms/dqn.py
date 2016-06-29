@@ -28,36 +28,38 @@ class UniformExperienceReplayMemory:
     def get_mini_batch(self):
         return self._buffer.sample(self._mini_batch_size)
 
+    def batch_size(self):
+        return self._mini_batch_size
+
 
 class DQN:
     def __init__(self, q_network, learning_rate, discount_factor, experience_replay_memory, freeze_interval):
         self._dqn_step = tf.get_variable("dqn_step", shape=[], dtype=tf.int32, initializer=tf.constant_initializer(0))
         self._q_network = q_network
+        batch_size = experience_replay_memory.batch_size()
         self._state = tf.placeholder(tf.float32, shape=[None] + q_network.state_dim, name="state")
         self._next_state = tf.placeholder(tf.float32, shape=[None] + q_network.state_dim, name="state")
-        self._action = tf.placeholder(tf.float32, shape=[None] + q_network.action_dim, name="action")
+        self._action = tf.placeholder(tf.int64, shape=[None] + q_network.action_dim, name="action")
         self._reward = tf.placeholder(tf.float32, shape=[None])
         self._experience_replay_memory = experience_replay_memory
         self._freeze_interval = freeze_interval
 
+        num_actions = len(self._q_network.discretized_actions)
         with tf.variable_scope('online_network'):
-            self._q = self._q_network.build_network(self._state, self._action)
+            self._q = self._q_network.build_network(self._state)
 
-        with tf.variable_scope('target_network') as scope:
-            next_q_values = []
-            for action in self._q_network.discretized_actions:
-                next_q_values.append(self._q_network.build_network(self._next_state, tf.constant(action,
-                                                                                                 dtype=tf.float32)))
-                scope.reuse_variables()
-
-            self._max_next_q = tf.reduce_max(tf.pack(next_q_values), 0)
+        with tf.variable_scope('target_network'):
+            next_q_values = self._q_network.build_network(self._next_state)
+            self._max_next_q = tf.reduce_max(next_q_values, 1)
 
         with tf.variable_scope('target_network', reuse=True):
-            q_values = tf.pack([self._q_network.build_network(self._state, tf.constant(action, dtype=tf.float32))
-                                for action in self._q_network.discretized_actions])
+            q_values = tf.squeeze(self._q_network.build_network(self._state))
             self._max_action = tf.squeeze(tf.gather(self._q_network.discretized_actions, tf.argmax(q_values, 0)))
 
-        td_error = 0.5 * tf.reduce_mean((self._reward + discount_factor * self._max_next_q - self._q)**2)
+        action_indices = tf.reshape(tf.one_hot(self._action, num_actions, 1., 0., axis=-1), [-1, num_actions, 1])
+        q_a = tf.batch_matmul(tf.reshape(self._q, [-1, 1, num_actions]), action_indices)
+        td_error = 0.5 * tf.reduce_mean((self._reward + discount_factor * self._max_next_q -
+                                         q_a)**2)
         tf.histogram_summary("td error", td_error)
 
         self._optimizer = tf.train.GradientDescentOptimizer(tf.cast(learning_rate, tf.float32))
