@@ -7,7 +7,6 @@ import datetime
 
 class PseudoQNetwork:
     def __init__(self):
-        self.action_dim = []
         self.discretized_actions = list(range(num_actions))
         self.state_dim = []
 
@@ -31,7 +30,8 @@ if __name__ == '__main__':
     with tf.device('/cpu:0'):
         with tf.Session() as session:
             q_network = PseudoQNetwork()
-            learner = dqn.DQN(q_network, 1, discount_factor, dqn.UniformExperienceReplayMemory(1, 1), freeze_interval=1)
+            learner = dqn.DQN(q_network, 1, discount_factor,
+                              dqn.UniformExperienceReplayMemory(1000, 32), freeze_interval=1)
             eps_greedy = dqn.EpsilonGreedy(learner, 0.1, 0.95, 0.1)
 
             session.run(tf.initialize_all_variables())

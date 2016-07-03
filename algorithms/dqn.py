@@ -36,10 +36,9 @@ class DQN:
     def __init__(self, q_network, learning_rate, discount_factor, experience_replay_memory, freeze_interval):
         self._dqn_step = tf.get_variable("dqn_step", shape=[], dtype=tf.int32, initializer=tf.constant_initializer(0))
         self._q_network = q_network
-        batch_size = experience_replay_memory.batch_size()
         self._state = tf.placeholder(tf.float32, shape=[None] + q_network.state_dim, name="state")
         self._next_state = tf.placeholder(tf.float32, shape=[None] + q_network.state_dim, name="state")
-        self._action = tf.placeholder(tf.int64, shape=[None] + q_network.action_dim, name="action")
+        self._action = tf.placeholder(tf.int64, shape=[None], name="action")
         self._reward = tf.placeholder(tf.float32, shape=[None])
         self._experience_replay_memory = experience_replay_memory
         self._freeze_interval = freeze_interval
@@ -57,15 +56,22 @@ class DQN:
             self._max_action = tf.squeeze(tf.gather(self._q_network.discretized_actions, tf.argmax(q_values, 0)))
 
         action_indices = tf.reshape(tf.one_hot(self._action, num_actions, 1., 0., axis=-1), [-1, num_actions, 1])
-        q_a = tf.batch_matmul(tf.reshape(self._q, [-1, 1, num_actions]), action_indices)
-        td_error = 0.5 * tf.reduce_mean((self._reward + discount_factor * self._max_next_q -
-                                         q_a)**2)
+        q_a = tf.squeeze(tf.batch_matmul(tf.reshape(self._q, [-1, 1, num_actions]), action_indices))
+        td_error = 0.5 * tf.reduce_mean((self._reward + discount_factor * self._max_next_q - q_a)**2)
         tf.histogram_summary("td error", td_error)
 
         self._optimizer = tf.train.GradientDescentOptimizer(tf.cast(learning_rate, tf.float32))
 
         td_gradient = self._optimizer.compute_gradients(td_error, self._scope_collection('online_network'))
         self._update_op = self._optimizer.apply_gradients(td_gradient, global_step=self._dqn_step)
+
+    @staticmethod
+    def _print_gradient(update_op, gradient):
+        ops = []
+        for grad, var in gradient:
+            ops.append(tf.Print(grad, [grad], summarize=1000))
+        with tf.control_dependencies(ops + [update_op]):
+            return tf.no_op()
 
     @staticmethod
     def _scope_collection(scope):
