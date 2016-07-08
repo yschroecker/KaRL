@@ -18,30 +18,38 @@ class UniformExperienceReplayMemory:
             indices = np.random.choice(self._size, num_samples)
             return self._ringbuffer[indices, :]
 
-    def __init__(self, buffer_size=1, mini_batch_size=1):
-        self._buffer = self.RingBuffer(buffer_size, 4)  # not a deque to avoid converting between lists and numpy arrays
+    def __init__(self, state_dim, buffer_size=1, mini_batch_size=1):  # TODO: refactor
+        self._state_dim = state_dim
+        self._buffer = self.RingBuffer(buffer_size, 2 + 2 * state_dim)
         self._mini_batch_size = mini_batch_size
 
     def add_sample(self, state, action, next_state, reward):
-        self._buffer.append([state, action, next_state, reward])
+        self._buffer.append(np.hstack([np.atleast_1d(state), [action], np.atleast_1d(next_state), [reward]]))
 
     def get_mini_batch(self):
-        return self._buffer.sample(self._mini_batch_size)
+        mini_batch = self._buffer.sample(self._mini_batch_size)
+        return mini_batch[:, :self._state_dim], mini_batch[:, self._state_dim], \
+               mini_batch[:, self._state_dim + 1: -1], mini_batch[:, -1]
 
     def batch_size(self):
         return self._mini_batch_size
 
 
 class DQN:
-    def __init__(self, q_network, learning_rate, discount_factor, experience_replay_memory, freeze_interval):
-        self._dqn_step = tf.get_variable("dqn_step", shape=[], dtype=tf.int32, initializer=tf.constant_initializer(0))
+    def __init__(self, q_network, optimizer, discount_factor, experience_replay_memory,
+                 update_interval=1, freeze_interval=1, loss_clip_threshold=None, loss_clip_mode='linear',
+                 global_step=tf.get_variable("dqn_step", shape=[], dtype=tf.int32,
+                                             initializer=tf.constant_initializer(0), trainable=False)):
+        self._dqn_step = global_step
         self._q_network = q_network
-        self._state = tf.placeholder(tf.float32, shape=[None] + q_network.state_dim, name="state")
-        self._next_state = tf.placeholder(tf.float32, shape=[None] + q_network.state_dim, name="state")
+        self._state = tf.placeholder(tf.float32, shape=[None, q_network.state_dim], name="state")
+        self._next_state = tf.placeholder(tf.float32, shape=[None, q_network.state_dim], name="state")
         self._action = tf.placeholder(tf.int64, shape=[None], name="action")
         self._reward = tf.placeholder(tf.float32, shape=[None])
         self._experience_replay_memory = experience_replay_memory
         self._freeze_interval = freeze_interval
+        self._update_interval = update_interval
+        self._samples_since_update = 0
 
         num_actions = len(self._q_network.discretized_actions)
         with tf.variable_scope('online_network'):
@@ -57,13 +65,24 @@ class DQN:
 
         action_indices = tf.reshape(tf.one_hot(self._action, num_actions, 1., 0., axis=-1), [-1, num_actions, 1])
         q_a = tf.squeeze(tf.batch_matmul(tf.reshape(self._q, [-1, 1, num_actions]), action_indices))
-        td_error = 0.5 * tf.reduce_mean((self._reward + discount_factor * self._max_next_q - q_a)**2)
-        tf.histogram_summary("td error", td_error)
 
-        self._optimizer = tf.train.GradientDescentOptimizer(tf.cast(learning_rate, tf.float32))
+        td_error = self._reward + discount_factor * self._max_next_q - q_a
+        if loss_clip_threshold is None:
+            td_loss = tf.reduce_mean(td_error ** 2)
+        elif loss_clip_mode == 'linear':
+            td_loss = tf.reduce_mean(tf.minimum(td_error, loss_clip_threshold) ** 2 + \
+                                     tf.maximum(td_error - loss_clip_threshold, 0))
+        elif loss_clip_mode == 'absolute':
+            td_loss = tf.reduce_mean(tf.clip_by_value(td_error, 0, loss_clip_threshold) ** 2)
 
-        td_gradient = self._optimizer.compute_gradients(td_error, self._scope_collection('online_network'))
+        td_loss += sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, 'online_network'))
+        tf.histogram_summary("td error", td_loss)
+
+        self._optimizer = optimizer
+
+        td_gradient = self._optimizer.compute_gradients(td_loss, self._scope_collection('online_network'))
         self._update_op = self._optimizer.apply_gradients(td_gradient, global_step=self._dqn_step)
+        self._copy_weight_ops = self._copy_weights()
 
     @staticmethod
     def _print_gradient(update_op, gradient):
@@ -84,16 +103,20 @@ class DQN:
                 ops.append(tf.get_variable(variable.name.split('/', 1)[1].split(':', 1)[0]).assign(variable))
         return ops
 
-    def update(self, state, action, reward, next_state):
+    def update(self, state, action, next_state, reward):
         self._experience_replay_memory.add_sample(state, action, next_state, reward)
-        mini_batch = self._experience_replay_memory.get_mini_batch()
-        feed_dict = {self._state: mini_batch[:, 0], self._action: mini_batch[:, 1],
-                     self._next_state: mini_batch[:, 2], self._reward: mini_batch[:, 3]}
 
-        if self._dqn_step.eval() % self._freeze_interval == 0:
-            tf.get_default_session().run(self._copy_weights(), feed_dict=feed_dict)
+        self._samples_since_update += 1
+        if self._samples_since_update == self._update_interval:
+            self._samples_since_update = 0
+            states, actions, next_states, rewards = self._experience_replay_memory.get_mini_batch()
+            feed_dict = {self._state: states, self._action: actions,
+                         self._next_state: next_states, self._reward: rewards}
 
-        tf.get_default_session().run(self._update_op, feed_dict=feed_dict)
+            tf.get_default_session().run(self._update_op, feed_dict=feed_dict)
+
+            if self._dqn_step.eval() % self._freeze_interval == 0:
+                tf.get_default_session().run(self._copy_weight_ops, feed_dict=feed_dict)
 
     def max_action(self, state):
         return self._max_action.eval(feed_dict={self._state: [state]})
@@ -103,7 +126,7 @@ class DQN:
 
 
 class EpsilonGreedy:
-    def __init__(self, learner, initial_epsilon, epsilon_decay, min_epsilon):
+    def __init__(self, learner, initial_epsilon, epsilon_decay=1, min_epsilon=0):
         self._learner = learner
         self._initial_epsilon = initial_epsilon
         self._epsilon = initial_epsilon

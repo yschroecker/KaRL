@@ -8,7 +8,7 @@ import datetime
 class PseudoQNetwork:
     def __init__(self):
         self.discretized_actions = list(range(num_actions))
-        self.state_dim = []
+        self.state_dim = 1
 
     @staticmethod
     def build_network(states):
@@ -23,15 +23,18 @@ class PseudoQNetwork:
 
 
 def state_index(state):
-    return state[0] * width + state[1]
+    return [state[0] * width + state[1]]
 
 
 if __name__ == '__main__':
     with tf.device('/cpu:0'):
         with tf.Session() as session:
             q_network = PseudoQNetwork()
-            learner = dqn.DQN(q_network, 1, discount_factor,
-                              dqn.UniformExperienceReplayMemory(1000, 32), freeze_interval=1)
+            learner = dqn.DQN(q_network=q_network,
+                              optimizer=tf.train.GradientDescentOptimizer(1.),
+                              discount_factor=discount_factor,
+                              experience_replay_memory=dqn.UniformExperienceReplayMemory(1, 1000, 32),
+                              freeze_interval=1)
             eps_greedy = dqn.EpsilonGreedy(learner, 0.1, 0.95, 0.1)
 
             session.run(tf.initialize_all_variables())
@@ -47,7 +50,7 @@ if __name__ == '__main__':
                 action_ = eps_greedy.get_action(state_index(current_state))
                 next_state_ = transition(current_state, action_)
                 reward_ = reward_function(next_state_)
-                learner.update(state_index(current_state), action_, reward_, state_index(next_state_))
+                learner.update(state_index(current_state), action_, state_index(next_state_), reward_)
                 eps_greedy.update()
                 cumulative_reward += discount_factor ** episode_t * reward_
                 episode_t += 1
