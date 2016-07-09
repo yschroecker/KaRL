@@ -15,40 +15,26 @@ class QNetwork:
         input_size = self.state_dim
         hidden1_size = 16
         hidden2_size = 16
-        hidden3_size = 16
-        hidden4_size = 16
         output_size = len(self.discretized_actions)
         regularization = 0.00
 
         hidden1_W = tf.get_variable("hidden1_W", shape=[input_size, hidden1_size],
                                     regularizer=tf.contrib.layers.l2_regularizer(regularization),
-                                    initializer=tf.truncated_normal_initializer(mean=0, stddev=1))
+                                    initializer=tf.truncated_normal_initializer(mean=0, stddev=1/input_size))
         hidden1_b = tf.get_variable("hidden1_b", shape=[hidden1_size], initializer=tf.constant_initializer(0.))
         hidden1 = tf.nn.relu(tf.nn.bias_add(tf.matmul(state, hidden1_W), hidden1_b), name="hidden1")
 
         hidden2_W = tf.get_variable("hidden2_W", shape=[hidden1_size, hidden2_size],
                                     regularizer=tf.contrib.layers.l2_regularizer(regularization),
-                                    initializer=tf.truncated_normal_initializer(mean=0, stddev=1))
+                                    initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden1_size))
         hidden2_b = tf.get_variable("hidden2_b", shape=[hidden2_size], initializer=tf.constant_initializer(0.))
         hidden2 = tf.nn.relu(tf.nn.bias_add(tf.matmul(hidden1, hidden2_W), hidden2_b), name="hidden2")
 
-        hidden3_W = tf.get_variable("hidden3_W", shape=[hidden2_size, hidden3_size],
-                                    regularizer=tf.contrib.layers.l2_regularizer(regularization),
-                                    initializer=tf.truncated_normal_initializer(mean=0, stddev=1))
-        hidden3_b = tf.get_variable("hidden3_b", shape=[hidden3_size], initializer=tf.constant_initializer(0.))
-        hidden3 = tf.nn.relu(tf.nn.bias_add(tf.matmul(hidden2, hidden3_W), hidden3_b), name="hidden3")
-
-        hidden4_W = tf.get_variable("hidden4_W", shape=[hidden3_size, hidden4_size],
-                                    regularizer=tf.contrib.layers.l2_regularizer(regularization),
-                                    initializer=tf.truncated_normal_initializer(mean=0, stddev=1))
-        hidden4_b = tf.get_variable("hidden4_b", shape=[hidden4_size], initializer=tf.constant_initializer(0.))
-        hidden4 = tf.nn.relu(tf.nn.bias_add(tf.matmul(hidden3, hidden4_W), hidden4_b), name="hidden4")
-
-        output_W = tf.get_variable("output_W", shape=[hidden4_size, output_size],
+        output_W = tf.get_variable("output_W", shape=[hidden2_size, output_size],
                                    regularizer=tf.contrib.layers.l2_regularizer(regularization),
-                                   initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01))
+                                   initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden2_size))
         output_b = tf.get_variable("output_b", shape=[output_size], initializer=tf.constant_initializer(0.))
-        return tf.nn.bias_add(tf.matmul(hidden4, output_W), output_b, name="Q")
+        return tf.nn.bias_add(tf.matmul(hidden2, output_W), output_b, name="Q")
 
 
 if __name__ == '__main__':
@@ -63,8 +49,9 @@ if __name__ == '__main__':
         network = QNetwork()
         global_step = tf.get_variable('global_step', shape=[], initializer=tf.constant_initializer(0.), trainable=False)
         learner = dqn.DQN(network,
-                          optimizer=tf.train.AdamOptimizer(epsilon=0.1),
-                          freeze_interval=10,
+                          optimizer=tf.train.AdagradOptimizer(1e-1),
+                          update_interval=1,
+                          freeze_interval=1,
                           discount_factor=0.9,
                           experience_replay_memory=dqn.UniformExperienceReplayMemory(network.state_dim, 10000, 30),
                           global_step=global_step)
