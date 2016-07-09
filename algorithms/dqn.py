@@ -38,6 +38,7 @@ class UniformExperienceReplayMemory:
 class DQN:
     def __init__(self, q_network, optimizer, discount_factor, experience_replay_memory,
                  update_interval=1, freeze_interval=1, loss_clip_threshold=None, loss_clip_mode='linear',
+                 double_dqn=False,
                  global_step=tf.get_variable("dqn_step", shape=[], dtype=tf.int32,
                                              initializer=tf.constant_initializer(0), trainable=False)):
         self._dqn_step = global_step
@@ -51,29 +52,35 @@ class DQN:
         self._update_interval = update_interval
         self._samples_since_update = 0
 
-        num_actions = len(self._q_network.discretized_actions)
         with tf.variable_scope('online_network'):
             self._q = self._q_network.build_network(self._state)
 
         with tf.variable_scope('target_network'):
-            next_q_values = self._q_network.build_network(self._next_state)
-            self._max_next_q = tf.reduce_max(next_q_values, 1)
+            next_q_values_target_net = self._q_network.build_network(self._next_state)
+
+        if double_dqn:
+            with tf.variable_scope('target_network', reuse=True):
+                next_q_values_q_net = self._q_network.build_network(self._next_state)
+                self._max_next_q = self._array_indexing(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
+        else:
+            self._max_next_q = tf.reduce_max(next_q_values_target_net, 1)
 
         with tf.variable_scope('target_network', reuse=True):
             q_values = tf.squeeze(self._q_network.build_network(self._state))
             self._max_action = tf.squeeze(tf.gather(self._q_network.discretized_actions, tf.argmax(q_values, 0)))
 
-        action_indices = tf.reshape(tf.one_hot(self._action, num_actions, 1., 0., axis=-1), [-1, num_actions, 1])
-        q_a = tf.squeeze(tf.batch_matmul(tf.reshape(self._q, [-1, 1, num_actions]), action_indices))
+        #action_indices = tf.reshape(tf.one_hot(self._action, num_actions, 1., 0., axis=-1), [-1, num_actions, 1])
+        #q_a = tf.squeeze(tf.batch_matmul(tf.reshape(self._q, [-1, 1, num_actions]), action_indices))
+        q_a = self._array_indexing(self._q, self._action)
 
-        td_error = self._reward + discount_factor * self._max_next_q - q_a
+        td_loss = self._reward + discount_factor * self._max_next_q - q_a
         if loss_clip_threshold is None:
-            td_loss = tf.reduce_mean(td_error ** 2)
+            td_loss = tf.reduce_mean(td_loss ** 2)
         elif loss_clip_mode == 'linear':
-            td_loss = tf.reduce_mean(tf.minimum(td_error, loss_clip_threshold) ** 2 + \
-                                     tf.maximum(td_error - loss_clip_threshold, 0))
+            td_loss = tf.reduce_mean(tf.minimum(td_loss, loss_clip_threshold) ** 2 + \
+                                     tf.maximum(td_loss - loss_clip_threshold, 0))
         elif loss_clip_mode == 'absolute':
-            td_loss = tf.reduce_mean(tf.clip_by_value(td_error, 0, loss_clip_threshold) ** 2)
+            td_loss = tf.reduce_mean(tf.clip_by_value(td_loss, 0, loss_clip_threshold) ** 2)
 
         td_loss += sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, 'online_network'))
         tf.histogram_summary("td error", td_loss)
@@ -123,6 +130,13 @@ class DQN:
 
     def actions(self):
         return self._q_network.discretized_actions
+
+    @staticmethod
+    def _array_indexing(tensor, index_tensor):
+        one_hot_indices = tf.reshape(tf.one_hot(index_tensor, tf.shape(tensor)[1], 1., 0., axis=-1),
+                                     [-1, tf.shape(tensor)[1], 1])
+        return tf.squeeze(tf.batch_matmul(tf.reshape(tensor, [-1, 1, tf.shape(tensor)[1]]), one_hot_indices))
+
 
 
 class EpsilonGreedy:
