@@ -1,7 +1,8 @@
-import numpy as np
 import collections
 import gym
 import sys
+import os
+import numpy as np
 import tensorflow as tf
 import algorithms.dqn as dqn
 
@@ -11,7 +12,7 @@ class QNetwork:
         self.state_dim = 4
         self.discretized_actions = [0, 1]
 
-    def build_network(self, state):
+    def build_network(self, state, reuse):
         input_size = self.state_dim
         hidden1_size = 16
         hidden2_size = 16
@@ -29,7 +30,8 @@ class QNetwork:
 
         output_W = tf.get_variable("output_W", shape=[hidden2_size, output_size],
                                    initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden2_size))
-        output_b = tf.get_variable("output_b", shape=[output_size], initializer=tf.constant_initializer(1))
+        output_b = tf.get_variable("output_b", shape=[output_size], initializer=tf.constant_initializer(0))
+
         return tf.nn.bias_add(tf.matmul(hidden2, output_W), output_b, name="Q")
 
 
@@ -39,8 +41,10 @@ if __name__ == '__main__':
             print("cartpole.py takes one argument: the output directory of openai gym monitor data")
             sys.exit(1)
 
+        summary_dir = sys.argv[1] + '/summaries'
+
         env = gym.make("CartPole-v0")
-        env.monitor.start(sys.argv[1], force=True)
+        env.monitor.start(sys.argv[1] + '/monitor', force=True)
 
         network = QNetwork()
         global_step = tf.get_variable('global_step', shape=[], initializer=tf.constant_initializer(0.), trainable=False)
@@ -51,9 +55,13 @@ if __name__ == '__main__':
                           discount_factor=0.9,
                           experience_replay_memory=dqn.UniformExperienceReplayMemory(network.state_dim, 10000, 30),
                           double_dqn=True,
+                          create_summaries=True,
                           global_step=global_step)
         exploration = dqn.EpsilonGreedy(learner, 0.0)
         session.run(tf.initialize_all_variables())
+
+        os.mkdirs = summary_dir
+        summary_writer = tf.train.SummaryWriter(summary_dir, session.graph)
 
         last_100 = collections.deque(maxlen=100)
         for episode in range(10000):
@@ -64,6 +72,7 @@ if __name__ == '__main__':
                 next_state, reward, is_terminal, _ = env.step(action)
                 if is_terminal:
                     learner.update(state, action, next_state, -100)
+                    learner.add_summaries(summary_writer, episode)
                     break
                 else:
                     learner.update(state, action, next_state, reward)

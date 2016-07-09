@@ -38,7 +38,7 @@ class UniformExperienceReplayMemory:
 class DQN:
     def __init__(self, q_network, optimizer, discount_factor, experience_replay_memory,
                  update_interval=1, freeze_interval=1, loss_clip_threshold=None, loss_clip_mode='linear',
-                 double_dqn=False,
+                 double_dqn=False, create_summaries=False,
                  global_step=tf.get_variable("dqn_step", shape=[], dtype=tf.int32,
                                              initializer=tf.constant_initializer(0), trainable=False)):
         self._dqn_step = global_step
@@ -53,24 +53,22 @@ class DQN:
         self._samples_since_update = 0
 
         with tf.variable_scope('online_network'):
-            self._q = self._q_network.build_network(self._state)
+            self._q = self._q_network.build_network(self._state, False)
 
         with tf.variable_scope('target_network'):
-            next_q_values_target_net = self._q_network.build_network(self._next_state)
+            next_q_values_target_net = self._q_network.build_network(self._next_state, False)
 
         if double_dqn:
             with tf.variable_scope('target_network', reuse=True):
-                next_q_values_q_net = self._q_network.build_network(self._next_state)
+                next_q_values_q_net = self._q_network.build_network(self._next_state, True)
                 self._max_next_q = self._array_indexing(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
         else:
             self._max_next_q = tf.reduce_max(next_q_values_target_net, 1)
 
         with tf.variable_scope('target_network', reuse=True):
-            q_values = tf.squeeze(self._q_network.build_network(self._state))
+            q_values = tf.squeeze(self._q_network.build_network(self._state, True))
             self._max_action = tf.squeeze(tf.gather(self._q_network.discretized_actions, tf.argmax(q_values, 0)))
 
-        #action_indices = tf.reshape(tf.one_hot(self._action, num_actions, 1., 0., axis=-1), [-1, num_actions, 1])
-        #q_a = tf.squeeze(tf.batch_matmul(tf.reshape(self._q, [-1, 1, num_actions]), action_indices))
         q_a = self._array_indexing(self._q, self._action)
 
         td_loss = self._reward + discount_factor * self._max_next_q - q_a
@@ -83,13 +81,26 @@ class DQN:
             td_loss = tf.reduce_mean(tf.clip_by_value(td_loss, 0, loss_clip_threshold) ** 2)
 
         td_loss += sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, 'online_network'))
-        tf.histogram_summary("td error", td_loss)
 
         self._optimizer = optimizer
 
         td_gradient = self._optimizer.compute_gradients(td_loss, self._scope_collection('online_network'))
         self._update_op = self._optimizer.apply_gradients(td_gradient, global_step=self._dqn_step)
         self._copy_weight_ops = self._copy_weights()
+
+        self._last_batch_feed_dict = None
+        if create_summaries:
+            for variable in self._scope_collection('online_network'):
+                tf.histogram_summary(variable.name, variable)
+            for variable in self._scope_collection('target_network'):
+                tf.histogram_summary(variable.name, variable)
+            for gradient, variable in td_gradient:
+                tf.histogram_summary(variable.name + "_gradient", gradient)
+            self._summary_op = tf.merge_all_summaries()
+
+    def add_summaries(self, summary_writer, episode):
+        summary_writer.add_summary(tf.get_default_session().run(self._summary_op,
+                                                                feed_dict=self._last_batch_feed_dict), episode)
 
     @staticmethod
     def _print_gradient(update_op, gradient):
@@ -119,6 +130,7 @@ class DQN:
             states, actions, next_states, rewards = self._experience_replay_memory.get_mini_batch()
             feed_dict = {self._state: states, self._action: actions,
                          self._next_state: next_states, self._reward: rewards}
+            self._last_batch_feed_dict = feed_dict
 
             tf.get_default_session().run(self._update_op, feed_dict=feed_dict)
 
@@ -136,7 +148,6 @@ class DQN:
         one_hot_indices = tf.reshape(tf.one_hot(index_tensor, tf.shape(tensor)[1], 1., 0., axis=-1),
                                      [-1, tf.shape(tensor)[1], 1])
         return tf.squeeze(tf.batch_matmul(tf.reshape(tensor, [-1, 1, tf.shape(tensor)[1]]), one_hot_indices))
-
 
 
 class EpsilonGreedy:
