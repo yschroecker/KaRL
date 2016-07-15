@@ -9,11 +9,11 @@ import algorithms.dqn as dqn
 
 class QNetwork:
     def __init__(self):
-        self.state_dim = 4
+        self.state_dim = [4]
         self.discretized_actions = [0, 1]
 
     def build_network(self, state, reuse):
-        input_size = self.state_dim
+        input_size = self.state_dim[0]
         hidden1_size = 16
         hidden2_size = 16
         output_size = len(self.discretized_actions)
@@ -38,7 +38,7 @@ class QNetwork:
 if __name__ == '__main__':
     with tf.Session() as session:
         if len(sys.argv) < 2:
-            print("cartpole.py takes one argument: the output directory of openai gym monitor data")
+            print("cartpole_dqn.py takes one argument: the output directory of openai gym monitor data")
             sys.exit(1)
 
         summary_dir = sys.argv[1] + '/summaries'
@@ -57,7 +57,7 @@ if __name__ == '__main__':
                           double_dqn=True,
                           create_summaries=True,
                           global_step=global_step)
-        exploration = dqn.EpsilonGreedy(learner, 0.0)
+        exploration = dqn.EpsilonGreedy(learner, 0)
         session.run(tf.initialize_all_variables())
 
         os.mkdirs = summary_dir

@@ -1,35 +1,20 @@
 import numpy as np
 import tensorflow as tf
+import util.ring_buffer
 
 
 class UniformExperienceReplayMemory:
-    class RingBuffer:
-        def __init__(self, capacity, element_dim):
-            self._ringbuffer = np.zeros([capacity, element_dim])
-            self._head = 0
-            self._size = 0
-
-        def append(self, elem):
-            self._ringbuffer[self._head, :] = elem
-            self._head = (self._head + 1) % self._ringbuffer.shape[0]
-            self._size = min(self._size + 1, self._ringbuffer.shape[0])
-
-        def sample(self, num_samples):
-            indices = np.random.choice(self._size, num_samples)
-            return self._ringbuffer[indices, :]
-
     def __init__(self, state_dim, buffer_size=1, mini_batch_size=1):  # TODO: refactor
         self._state_dim = state_dim
-        self._buffer = self.RingBuffer(buffer_size, 2 + 2 * state_dim)
+        self._buffer = util.ring_buffer.RingBufferCollection(buffer_size, [self._state_dim, 1, self._state_dim, 1])
         self._mini_batch_size = mini_batch_size
 
     def add_sample(self, state, action, next_state, reward):
-        self._buffer.append(np.hstack([np.atleast_1d(state), [action], np.atleast_1d(next_state), [reward]]))
+        self._buffer.append(state, action, next_state, reward)
 
     def get_mini_batch(self):
-        mini_batch = self._buffer.sample(self._mini_batch_size)
-        return mini_batch[:, :self._state_dim], mini_batch[:, self._state_dim], \
-               mini_batch[:, self._state_dim + 1: -1], mini_batch[:, -1]
+        state, action, next_state, reward = self._buffer.sample(self._mini_batch_size)
+        return state, np.squeeze(action), next_state, np.squeeze(reward)
 
     def batch_size(self):
         return self._mini_batch_size
@@ -39,18 +24,20 @@ class DQN:
     def __init__(self, q_network, optimizer, discount_factor, experience_replay_memory,
                  update_interval=1, freeze_interval=1, loss_clip_threshold=None, loss_clip_mode='linear',
                  double_dqn=False, create_summaries=False,
+                 state_preprocessor=lambda x, y=None: x if y is None else (x, y),
                  global_step=tf.get_variable("dqn_step", shape=[], dtype=tf.int32,
                                              initializer=tf.constant_initializer(0), trainable=False)):
         self._dqn_step = global_step
         self._q_network = q_network
-        self._state = tf.placeholder(tf.float32, shape=[None, q_network.state_dim], name="state")
-        self._next_state = tf.placeholder(tf.float32, shape=[None, q_network.state_dim], name="state")
+        self._state = tf.placeholder(tf.float32, shape=[None] +  q_network.state_dim, name="state")
+        self._next_state = tf.placeholder(tf.float32, shape=[None] + q_network.state_dim, name="state")
         self._action = tf.placeholder(tf.int64, shape=[None], name="action")
         self._reward = tf.placeholder(tf.float32, shape=[None])
         self._experience_replay_memory = experience_replay_memory
         self._freeze_interval = freeze_interval
         self._update_interval = update_interval
         self._samples_since_update = 0
+        self._preprocess_states = state_preprocessor
 
         with tf.variable_scope('online_network'):
             self._q = self._q_network.build_network(self._state, False)
@@ -75,7 +62,7 @@ class DQN:
         if loss_clip_threshold is None:
             td_loss = tf.reduce_mean(td_loss ** 2)
         elif loss_clip_mode == 'linear':
-            td_loss = tf.reduce_mean(tf.minimum(td_loss, loss_clip_threshold) ** 2 + \
+            td_loss = tf.reduce_mean(tf.minimum(td_loss, loss_clip_threshold) ** 2 +
                                      tf.maximum(td_loss - loss_clip_threshold, 0))
         elif loss_clip_mode == 'absolute':
             td_loss = tf.reduce_mean(tf.clip_by_value(td_loss, 0, loss_clip_threshold) ** 2)
@@ -128,8 +115,9 @@ class DQN:
         if self._samples_since_update == self._update_interval:
             self._samples_since_update = 0
             states, actions, next_states, rewards = self._experience_replay_memory.get_mini_batch()
-            feed_dict = {self._state: states, self._action: actions,
-                         self._next_state: next_states, self._reward: rewards}
+            transformed_states, transformed_next_states = self._preprocess_states(states, next_states)
+            feed_dict = {self._state: transformed_states, self._action: actions,
+                         self._next_state: transformed_next_states, self._reward: rewards}
             self._last_batch_feed_dict = feed_dict
 
             tf.get_default_session().run(self._update_op, feed_dict=feed_dict)
@@ -138,7 +126,7 @@ class DQN:
                 tf.get_default_session().run(self._copy_weight_ops, feed_dict=feed_dict)
 
     def max_action(self, state):
-        return self._max_action.eval(feed_dict={self._state: [state]})
+        return self._max_action.eval(feed_dict={self._state: self._preprocess_states([state])})
 
     def actions(self):
         return self._q_network.discretized_actions
@@ -151,12 +139,13 @@ class DQN:
 
 
 class EpsilonGreedy:
-    def __init__(self, learner, initial_epsilon, epsilon_decay=1, min_epsilon=0):
+    def __init__(self, learner, initial_epsilon, epsilon_decay=1, min_epsilon=0, decay_type='linear'):
         self._learner = learner
         self._initial_epsilon = initial_epsilon
         self._epsilon = initial_epsilon
         self._epsilon_decay = epsilon_decay
         self._min_epsilon = min_epsilon
+        self._decay_type = decay_type
 
     def get_action(self, state):
         rand = np.random.rand()
@@ -166,4 +155,10 @@ class EpsilonGreedy:
             return np.random.choice(self._learner.actions())
 
     def update(self):
-        self._epsilon = max(self._min_epsilon, self._epsilon * self._epsilon_decay)
+        if self._decay_type == 'exponential':
+            self._epsilon = max(self._min_epsilon, self._epsilon * self._epsilon_decay)
+        elif self._decay_type == 'linear':
+            self._epsilon = max(self._min_epsilon,
+                                self._epsilon - self._epsilon_decay * (self._initial_epsilon - self._min_epsilon))
+        else:
+            assert False, "Invalid epsilon decay type"
