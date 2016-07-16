@@ -4,9 +4,9 @@ import algorithms.dqn as dqn
 
 
 class HistoryStateManager:
-    def __init__(self, history_length, buffer_size, state_dim):
+    def __init__(self, history_length, buffer_size, state_dim, file_path=None):
         self._history_length = history_length - 1
-        self._state_buffer = util.ring_buffer.RingBuffer(buffer_size, state_dim)
+        self._state_buffer = util.ring_buffer.RingBuffer(buffer_size, state_dim, file_path=file_path)
         self._valid = False
         self._episode_counter = 0
         self._counter = 0

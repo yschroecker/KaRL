@@ -4,9 +4,10 @@ import util.ring_buffer
 
 
 class UniformExperienceReplayMemory:
-    def __init__(self, state_dim, buffer_size=1, mini_batch_size=1):  # TODO: refactor
+    def __init__(self, state_dim, buffer_size=1, mini_batch_size=1, file_path=None):  # TODO: refactor
         self._state_dim = state_dim
-        self._buffer = util.ring_buffer.RingBufferCollection(buffer_size, [self._state_dim, 1, self._state_dim, 1])
+        self._buffer = util.ring_buffer.RingBufferCollection(buffer_size, [self._state_dim, 1, self._state_dim, 1],
+                                                             file_path=file_path)
         self._mini_batch_size = mini_batch_size
 
     def add_sample(self, state, action, next_state, reward):
@@ -19,11 +20,15 @@ class UniformExperienceReplayMemory:
     def batch_size(self):
         return self._mini_batch_size
 
+    @property
+    def size(self):
+        return self._buffer.size
+
 
 class DQN:
     def __init__(self, q_network, optimizer, discount_factor, experience_replay_memory,
                  update_interval=1, freeze_interval=1, loss_clip_threshold=None, loss_clip_mode='linear',
-                 double_dqn=False, create_summaries=False,
+                 double_dqn=False, create_summaries=False, minimum_memory_size=0,
                  state_preprocessor=lambda x, y=None: x if y is None else (x, y),
                  global_step=tf.get_variable("dqn_step", shape=[], dtype=tf.int32,
                                              initializer=tf.constant_initializer(0), trainable=False)):
@@ -36,8 +41,9 @@ class DQN:
         self._experience_replay_memory = experience_replay_memory
         self._freeze_interval = freeze_interval
         self._update_interval = update_interval
-        self._samples_since_update = 0
+        self._minimum_memory_size = minimum_memory_size
         self._preprocess_states = state_preprocessor
+        self._samples_since_update = 0
 
         with tf.variable_scope('online_network'):
             self._q = self._q_network.build_network(self._state, False)
@@ -83,11 +89,13 @@ class DQN:
                 tf.histogram_summary(variable.name, variable)
             for gradient, variable in td_gradient:
                 tf.histogram_summary(variable.name + "_gradient", gradient)
+            tf.scalar_summary("td loss", td_loss)
             self._summary_op = tf.merge_all_summaries()
 
     def add_summaries(self, summary_writer, episode):
-        summary_writer.add_summary(tf.get_default_session().run(self._summary_op,
-                                                                feed_dict=self._last_batch_feed_dict), episode)
+        if self._last_batch_feed_dict is not None:
+            summary_writer.add_summary(tf.get_default_session().run(self._summary_op,
+                                                                    feed_dict=self._last_batch_feed_dict), episode)
 
     @staticmethod
     def _print_gradient(update_op, gradient):
@@ -112,7 +120,8 @@ class DQN:
         self._experience_replay_memory.add_sample(state, action, next_state, reward)
 
         self._samples_since_update += 1
-        if self._samples_since_update == self._update_interval:
+        if self._samples_since_update >= self._update_interval and \
+                        self._experience_replay_memory.size >= self._minimum_memory_size:
             self._samples_since_update = 0
             states, actions, next_states, rewards = self._experience_replay_memory.get_mini_batch()
             transformed_states, transformed_next_states = self._preprocess_states(states, next_states)

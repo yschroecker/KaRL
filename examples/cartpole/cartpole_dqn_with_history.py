@@ -38,58 +38,59 @@ class QNetwork:
 
 
 if __name__ == '__main__':
-    with tf.Session() as session:
-        if len(sys.argv) < 2:
-            print("cartpole_dqn.py takes one argument: the output directory of openai gym monitor data")
-            sys.exit(1)
+    with tf.device('/cpu:0'):
+        with tf.Session() as session:
+            if len(sys.argv) < 2:
+                print("cartpole_dqn.py takes one argument: the output directory of openai gym monitor data")
+                sys.exit(1)
 
-        summary_dir = sys.argv[1] + '/summaries'
+            summary_dir = sys.argv[1] + '/summaries'
 
-        env = gym.make("CartPole-v0")
-        env.monitor.start(sys.argv[1] + '/monitor', force=True)
+            env = gym.make("CartPole-v0")
+            env.monitor.start(sys.argv[1] + '/monitor', force=True)
 
-        network = QNetwork()
-        global_step = tf.get_variable('global_step', shape=[], initializer=tf.constant_initializer(0.), trainable=False)
-        history_manager = algorithms.history.HistoryStateManager(2, 10000, [4])
-        learner = dqn.DQN(network,
-                          optimizer=tf.train.AdagradOptimizer(1e-1),
-                          update_interval=1,
-                          freeze_interval=100,
-                          discount_factor=0.9,
-                          experience_replay_memory=dqn.UniformExperienceReplayMemory(history_manager.state_id_dim,
-                                                                                     10000, 30),
-                          double_dqn=True,
-                          create_summaries=True,
-                          state_preprocessor=history_manager.retrieve_histories,
-                          global_step=global_step)
-        exploration = dqn.EpsilonGreedy(learner, 0.0)
-        session.run(tf.initialize_all_variables())
+            network = QNetwork()
+            global_step = tf.get_variable('global_step', shape=[], initializer=tf.constant_initializer(0.), trainable=False)
+            history_manager = algorithms.history.HistoryStateManager(2, 10000, [4], file_path='/home/yannick/tmp/mem')
+            learner = dqn.DQN(network,
+                              optimizer=tf.train.AdagradOptimizer(1e-1),
+                              update_interval=1,
+                              freeze_interval=100,
+                              discount_factor=0.9,
+                              experience_replay_memory=dqn.UniformExperienceReplayMemory(history_manager.state_id_dim,
+                                                                                         10000, 30),
+                              double_dqn=True,
+                              create_summaries=True,
+                              state_preprocessor=history_manager.retrieve_histories,
+                              global_step=global_step)
+            exploration = dqn.EpsilonGreedy(learner, 0.0)
+            session.run(tf.initialize_all_variables())
 
-        os.mkdirs = summary_dir
-        summary_writer = tf.train.SummaryWriter(summary_dir, session.graph)
+            os.mkdirs = summary_dir
+            summary_writer = tf.train.SummaryWriter(summary_dir, session.graph)
 
-        last_100 = collections.deque(maxlen=100)
-        for episode in range(10000):
-            history_manager.new_episode()
-            state = history_manager.new_state(env.reset())
-            cumulative_reward = 0
-            while True:
-                action = exploration.get_action(state)
-                next_state, reward, is_terminal, _ = env.step(action)
-                next_state = history_manager.new_state(next_state)
-                if is_terminal:
-                    learner.update(state, action, next_state, -100)
-                    learner.add_summaries(summary_writer, episode)
+            last_100 = collections.deque(maxlen=100)
+            for episode in range(10000):
+                history_manager.new_episode()
+                state = history_manager.new_state(env.reset())
+                cumulative_reward = 0
+                while True:
+                    action = exploration.get_action(state)
+                    next_state, reward, is_terminal, _ = env.step(action)
+                    next_state = history_manager.new_state(next_state)
+                    if is_terminal:
+                        learner.update(state, action, next_state, -100)
+                        learner.add_summaries(summary_writer, episode)
+                        break
+                    else:
+                        learner.update(state, action, next_state, reward)
+                        exploration.update()
+
+                        cumulative_reward += reward
+                        state = next_state
+                last_100.append(cumulative_reward)
+                last_100_mean = np.mean(last_100)
+                print("Episode %d: %f(%f)" % (episode, last_100_mean, exploration._epsilon))
+                if last_100_mean > 195:
                     break
-                else:
-                    learner.update(state, action, next_state, reward)
-                    exploration.update()
-
-                    cumulative_reward += reward
-                    state = next_state
-            last_100.append(cumulative_reward)
-            last_100_mean = np.mean(last_100)
-            print("Episode %d: %f(%f)" % (episode, last_100_mean, exploration._epsilon))
-            if last_100_mean > 195:
-                break
 
