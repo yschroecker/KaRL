@@ -1,21 +1,24 @@
+import collections
 import numpy as np
 import tensorflow as tf
 import util.ring_buffer
 
+Statistics = collections.namedtuple('Statistics', ['mean_q'])
+
 
 class UniformExperienceReplayMemory:
-    def __init__(self, state_dim, buffer_size=1, mini_batch_size=1, file_path=None):  # TODO: refactor
+    def __init__(self, state_dim, buffer_size=1, mini_batch_size=1, file_path=None, dtype=np.float16):  # TODO: refactor
         self._state_dim = state_dim
-        self._buffer = util.ring_buffer.RingBufferCollection(buffer_size, [self._state_dim, 1, self._state_dim, 1],
-                                                             file_path=file_path)
+        self._buffer = util.ring_buffer.RingBufferCollection(buffer_size, [self._state_dim, 1, self._state_dim, 1, 1],
+                                                             file_path=file_path, dtype=dtype)
         self._mini_batch_size = mini_batch_size
 
-    def add_sample(self, state, action, next_state, reward):
-        self._buffer.append(state, action, next_state, reward)
+    def add_sample(self, state, action, next_state, reward, target_factor):
+        self._buffer.append(state, action, next_state, reward, target_factor)
 
     def get_mini_batch(self):
-        state, action, next_state, reward = self._buffer.sample(self._mini_batch_size)
-        return state, np.squeeze(action), next_state, np.squeeze(reward)
+        state, action, next_state, reward, target_factor = self._buffer.sample(self._mini_batch_size)
+        return state, np.squeeze(action), next_state, np.squeeze(reward), np.squeeze(target_factor)
 
     def batch_size(self):
         return self._mini_batch_size
@@ -38,6 +41,7 @@ class DQN:
         self._next_state = tf.placeholder(tf.float32, shape=[None] + q_network.state_dim, name="state")
         self._action = tf.placeholder(tf.int64, shape=[None], name="action")
         self._reward = tf.placeholder(tf.float32, shape=[None])
+        self._target_q_factor = tf.placeholder(tf.float32, shape=[None])
         self._experience_replay_memory = experience_replay_memory
         self._freeze_interval = freeze_interval
         self._update_interval = update_interval
@@ -64,20 +68,20 @@ class DQN:
 
         q_a = self._array_indexing(self._q, self._action)
 
-        td_loss = self._reward + discount_factor * self._max_next_q - q_a
+        self._td_loss = self._reward + discount_factor * self._target_q_factor * self._max_next_q - q_a
         if loss_clip_threshold is None:
-            td_loss = tf.reduce_mean(td_loss ** 2)
+            self._td_loss = tf.reduce_sum(self._td_loss ** 2)
         elif loss_clip_mode == 'linear':
-            td_loss = tf.reduce_mean(tf.minimum(td_loss, loss_clip_threshold) ** 2 +
-                                     tf.maximum(td_loss - loss_clip_threshold, 0))
+            self._td_loss = tf.reduce_sum(tf.minimum(self._td_loss, loss_clip_threshold) ** 2 +
+                                          tf.maximum(self._td_loss - loss_clip_threshold, 0))
         elif loss_clip_mode == 'absolute':
-            td_loss = tf.reduce_mean(tf.clip_by_value(td_loss, 0, loss_clip_threshold) ** 2)
+            self._td_loss = tf.reduce_sum(tf.clip_by_value(self._td_loss, 0, loss_clip_threshold) ** 2)
 
-        td_loss += sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, 'online_network'))
+        self._td_loss += sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, 'online_network'))
 
         self._optimizer = optimizer
 
-        td_gradient = self._optimizer.compute_gradients(td_loss, self._scope_collection('online_network'))
+        td_gradient = self._optimizer.compute_gradients(self._td_loss, self._scope_collection('online_network'))
         self._update_op = self._optimizer.apply_gradients(td_gradient, global_step=self._dqn_step)
         self._copy_weight_ops = self._copy_weights()
 
@@ -89,7 +93,9 @@ class DQN:
                 tf.histogram_summary(variable.name, variable)
             for gradient, variable in td_gradient:
                 tf.histogram_summary(variable.name + "_gradient", gradient)
-            tf.scalar_summary("td loss", td_loss)
+            tf.scalar_summary("sample-R", tf.reduce_mean(self._reward))
+            tf.scalar_summary("q", tf.reduce_mean(self._q))
+            tf.scalar_summary("td loss", self._td_loss)
             self._summary_op = tf.merge_all_summaries()
 
     def add_summaries(self, summary_writer, episode):
@@ -116,23 +122,43 @@ class DQN:
                 ops.append(tf.get_variable(variable.name.split('/', 1)[1].split(':', 1)[0]).assign(variable))
         return ops
 
-    def update(self, state, action, next_state, reward):
-        self._experience_replay_memory.add_sample(state, action, next_state, reward)
+    def update(self, state, action, next_state, reward, is_terminal):
+        self._experience_replay_memory.add_sample(state, action, next_state, reward, 0 if is_terminal else 1)
 
         self._samples_since_update += 1
         if self._samples_since_update >= self._update_interval and \
                         self._experience_replay_memory.size >= self._minimum_memory_size:
             self._samples_since_update = 0
-            states, actions, next_states, rewards = self._experience_replay_memory.get_mini_batch()
+            states, actions, next_states, rewards, target_q_factor = self._experience_replay_memory.get_mini_batch()
             transformed_states, transformed_next_states = self._preprocess_states(states, next_states)
             feed_dict = {self._state: transformed_states, self._action: actions,
-                         self._next_state: transformed_next_states, self._reward: rewards}
+                         self._next_state: transformed_next_states, self._reward: rewards,
+                         self._target_q_factor: target_q_factor}
             self._last_batch_feed_dict = feed_dict
 
-            tf.get_default_session().run(self._update_op, feed_dict=feed_dict)
+            # Profiling
+            # import sys
+            # from tensorflow.python.client import timeline
+            # run_metadata = tf.RunMetadata()
+            # tf.get_default_session().run([self._update_op] + self._copy_weight_ops, feed_dict=feed_dict,
+            #                              options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
+            #                              run_metadata=run_metadata)
+            # trace = timeline.Timeline(step_stats=run_metadata.step_stats)
+            # with open('/home/yannick/scpout/timeline.json', 'w') as f:
+            #     f.write(trace.generate_chrome_trace_format())
+            # sys.exit(0)
+
+            mini_batch_q, td_loss, _ = tf.get_default_session().run([self._q, self._td_loss, self._update_op],
+                                                                    feed_dict=feed_dict)
+
+            if td_loss > 10**3:
+                import pdb;pdb.set_trace()
 
             if self._dqn_step.eval() % self._freeze_interval == 0:
                 tf.get_default_session().run(self._copy_weight_ops, feed_dict=feed_dict)
+
+            return Statistics(np.mean(mini_batch_q))
+        return Statistics(0)
 
     def max_action(self, state):
         return self._max_action.eval(feed_dict={self._state: self._preprocess_states([state])})

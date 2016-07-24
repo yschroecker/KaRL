@@ -50,7 +50,7 @@ class HistoryStateManager:
         return 2
 
     def create_replay_memory(self, mini_batch_size):
-        return dqn.UniformExperienceReplayMemory(self.state_id_dim, self._buffer_size, mini_batch_size)
+        return dqn.UniformExperienceReplayMemory(self.state_id_dim, self._buffer_size, mini_batch_size, dtype=np.int32)
 
 
 if __name__ == '__main__':

@@ -51,7 +51,7 @@ if __name__ == '__main__':
 
             network = QNetwork()
             global_step = tf.get_variable('global_step', shape=[], initializer=tf.constant_initializer(0.), trainable=False)
-            history_manager = algorithms.history.HistoryStateManager(2, 10000, [4], file_path='/home/yannick/tmp/mem')
+            history_manager = algorithms.history.HistoryStateManager(2, 10000, [4])
             learner = dqn.DQN(network,
                               optimizer=tf.train.AdagradOptimizer(1e-1),
                               update_interval=1,

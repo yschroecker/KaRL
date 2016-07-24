@@ -4,13 +4,13 @@ import uuid
 
 
 class RingBuffer:
-    def __init__(self, capacity, element_dim, file_path=None):
+    def __init__(self, capacity, element_dim, file_path=None, dtype=np.float16):
         self._use_disk = file_path is not None
         if self._use_disk:
             file = h5py.File(file_path)
             self._ringbuffer = file.create_dataset(str(uuid.uuid4()), np.hstack([capacity, element_dim]), dtype='f')
         else:
-            self._ringbuffer = np.zeros(np.hstack([capacity, element_dim]), dtype=np.float32)
+            self._ringbuffer = np.zeros(np.hstack([capacity, element_dim]), dtype=dtype)
         self._head = 0
         self.size = 0
         self._elements_inserted = 0
@@ -43,8 +43,8 @@ class RingBuffer:
 
 
 class RingBufferCollection:
-    def __init__(self, capacity, element_dims, file_path=None):
-        self._buffers = [RingBuffer(capacity, element_dim, file_path) for element_dim in element_dims]
+    def __init__(self, capacity, element_dims, file_path=None, dtype=np.float16):
+        self._buffers = [RingBuffer(capacity, element_dim, file_path, dtype) for element_dim in element_dims]
         self.size = 0
         self._capacity = capacity
 
