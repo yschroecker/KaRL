@@ -43,8 +43,8 @@ class RingBuffer:
 
 
 class RingBufferCollection:
-    def __init__(self, capacity, element_dims, file_path=None, dtype=np.float16):
-        self._buffers = [RingBuffer(capacity, element_dim, file_path, dtype) for element_dim in element_dims]
+    def __init__(self, capacity, element_dims, *args, **kwargs):
+        self._buffers = [RingBuffer(capacity, element_dim, *args, **kwargs) for element_dim in element_dims]
         self.size = 0
         self._capacity = capacity
 

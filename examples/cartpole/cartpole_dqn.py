@@ -5,34 +5,44 @@ import os
 import numpy as np
 import tensorflow as tf
 import algorithms.dqn as dqn
+import algorithms.history
+
+history_length = 1
+state_dim = [4]
+num_actions = 2
+optimizer = tf.train.AdagradOptimizer(1e-1)
+update_interval = 1
+freeze_interval = 1
+discount_factor = 0.9
+exploration = dqn.EpsilonGreedy(0.0)
+buffer_size = 10000
+mini_batch_size = 30
+double_dqn = True
+create_summaries = True
 
 
-class QNetwork:
-    def __init__(self):
-        self.state_dim = [4]
-        self.discretized_actions = [0, 1]
+def build_network(state, reuse):
+    input_size = 4 * history_length
+    hidden1_size = 16
+    hidden2_size = 16
+    output_size = 2
+    state = tf.reshape(state, [-1, input_size])
 
-    def build_network(self, state, reuse):
-        input_size = self.state_dim[0]
-        hidden1_size = 16
-        hidden2_size = 16
-        output_size = len(self.discretized_actions)
+    hidden1_W = tf.get_variable("hidden1_W", shape=[input_size, hidden1_size],
+                                initializer=tf.truncated_normal_initializer(mean=0, stddev=1/input_size))
+    hidden1_b = tf.get_variable("hidden1_b", shape=[hidden1_size], initializer=tf.constant_initializer(0.))
+    hidden1 = tf.nn.relu(tf.nn.bias_add(tf.matmul(state, hidden1_W), hidden1_b), name="hidden1")
 
-        hidden1_W = tf.get_variable("hidden1_W", shape=[input_size, hidden1_size],
-                                    initializer=tf.truncated_normal_initializer(mean=0, stddev=1/input_size))
-        hidden1_b = tf.get_variable("hidden1_b", shape=[hidden1_size], initializer=tf.constant_initializer(0.))
-        hidden1 = tf.nn.relu(tf.nn.bias_add(tf.matmul(state, hidden1_W), hidden1_b), name="hidden1")
+    hidden2_W = tf.get_variable("hidden2_W", shape=[hidden1_size, hidden2_size],
+                                initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden1_size))
+    hidden2_b = tf.get_variable("hidden2_b", shape=[hidden2_size], initializer=tf.constant_initializer(0.))
+    hidden2 = tf.nn.relu(tf.nn.bias_add(tf.matmul(hidden1, hidden2_W), hidden2_b), name="hidden2")
 
-        hidden2_W = tf.get_variable("hidden2_W", shape=[hidden1_size, hidden2_size],
-                                    initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden1_size))
-        hidden2_b = tf.get_variable("hidden2_b", shape=[hidden2_size], initializer=tf.constant_initializer(0.))
-        hidden2 = tf.nn.relu(tf.nn.bias_add(tf.matmul(hidden1, hidden2_W), hidden2_b), name="hidden2")
+    output_W = tf.get_variable("output_W", shape=[hidden2_size, output_size],
+                               initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden2_size))
+    output_b = tf.get_variable("output_b", shape=[output_size], initializer=tf.constant_initializer(0))
 
-        output_W = tf.get_variable("output_W", shape=[hidden2_size, output_size],
-                                   initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden2_size))
-        output_b = tf.get_variable("output_b", shape=[output_size], initializer=tf.constant_initializer(0))
-
-        return tf.nn.bias_add(tf.matmul(hidden2, output_W), output_b, name="Q")
+    return tf.nn.bias_add(tf.matmul(hidden2, output_W), output_b, name="Q")
 
 
 if __name__ == '__main__':
@@ -47,18 +57,37 @@ if __name__ == '__main__':
             env = gym.make("CartPole-v0")
             env.monitor.start(sys.argv[1] + '/monitor', force=True)
 
-            network = QNetwork()
-            global_step = tf.get_variable('global_step', shape=[], initializer=tf.constant_initializer(0.), trainable=False)
-            learner = dqn.DQN(network,
-                              optimizer=tf.train.AdagradOptimizer(1e-1),
-                              update_interval=1,
-                              freeze_interval=100,
-                              discount_factor=0.9,
-                              experience_replay_memory=dqn.UniformExperienceReplayMemory(network.state_dim, 10000, 30),
-                              double_dqn=True,
-                              create_summaries=True,
-                              global_step=global_step)
-            exploration = dqn.EpsilonGreedy(learner, 0)
+            if history_length > 1:
+                learner, env = algorithms.history.create_dqn_with_history(
+                    history_length=history_length,
+                    network_builder=build_network,
+                    environment=env,
+                    state_dim=state_dim,
+                    num_actions=num_actions,
+                    optimizer=optimizer,
+                    update_interval=update_interval,
+                    freeze_interval=freeze_interval,
+                    discount_factor=discount_factor,
+                    exploration=exploration,
+                    buffer_size=buffer_size,
+                    mini_batch_size=mini_batch_size,
+                    replay_memory_type=dqn.UniformExperienceReplayMemory,
+                    double_dqn=double_dqn,
+                    create_summaries=create_summaries)
+            else:
+                learner = dqn.DQN(
+                    network_builder=build_network,
+                    state_dim=state_dim,
+                    num_actions=num_actions,
+                    optimizer=optimizer,
+                    update_interval=update_interval,
+                    freeze_interval=freeze_interval,
+                    discount_factor=discount_factor,
+                    exploration=exploration,
+                    experience_replay_memory=dqn.UniformExperienceReplayMemory(state_dim, buffer_size, mini_batch_size),
+                    double_dqn=double_dqn,
+                    create_summaries=create_summaries)
+
             session.run(tf.initialize_all_variables())
 
             os.mkdirs = summary_dir
@@ -69,21 +98,20 @@ if __name__ == '__main__':
                 state = env.reset()
                 cumulative_reward = 0
                 while True:
-                    action = exploration.get_action(state)
+                    action = learner.get_action(state)
                     next_state, reward, is_terminal, _ = env.step(action)
                     if is_terminal:
-                        learner.update(state, action, next_state, -100, True)
+                        statistics = learner.update(state, action, next_state, -100, is_terminal)
                         learner.add_summaries(summary_writer, episode)
                         break
                     else:
-                        learner.update(state, action, next_state, reward, False)
-                        exploration.update()
+                        statistics = learner.update(state, action, next_state, reward, is_terminal)
 
                         cumulative_reward += reward
                         state = next_state
                 last_100.append(cumulative_reward)
                 last_100_mean = np.mean(last_100)
-                print("Episode %d: %f(%f)" % (episode, last_100_mean, exploration._epsilon))
+                print("Episode %d: %f(%f)" % (episode, last_100_mean, statistics.epsilon))
                 if last_100_mean > 195:
                     break
 

@@ -30,3 +30,6 @@ def reward_function(state):
     assert state[1] >= 0
     assert state[1] < height
     return reward_grid[state[1]][state[0]]
+
+def is_terminal(state):
+    return reward_function(state) > 0

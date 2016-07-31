@@ -1,60 +1,49 @@
 import tensorflow as tf
-from gridworld import *
+import gridworld
 import algorithms.dqn as dqn
-import sys
-import datetime
 
 
-class PseudoQNetwork:
-    def __init__(self):
-        self.discretized_actions = list(range(num_actions))
-        self.state_dim = 1
+def build_network(states, reuse):
+    states = tf.cast(states, tf.int64)
+    state = tf.one_hot(states, gridworld.width * gridworld.height, 1, 0, axis=-1)
+    input_dim = gridworld.width * gridworld.height
+    state = tf.reshape(tf.cast(state, tf.float32), [-1, input_dim])
 
-    @staticmethod
-    def build_network(states):
-        states = tf.cast(states, tf.int64)
-        state = tf.one_hot(states, width * height, 1, 0, axis=-1)
-        input_dim = width * height
-        state = tf.reshape(tf.cast(state, tf.float32), [-1, input_dim])
+    weights = tf.get_variable("weights", shape=[input_dim, gridworld.num_actions],
+                              initializer=tf.constant_initializer(1))
 
-        weights = tf.get_variable("weights", shape=[input_dim, num_actions], initializer=tf.constant_initializer(1))
-
-        return tf.matmul(state, weights)
+    return tf.matmul(state, weights)
 
 
 def state_index(state):
-    return [state[0] * width + state[1]]
+    return [state[0] * gridworld.width + state[1]]
 
 
 if __name__ == '__main__':
     with tf.device('/cpu:0'):
         with tf.Session() as session:
-            q_network = PseudoQNetwork()
-            learner = dqn.DQN(q_network=q_network,
-                              optimizer=tf.train.GradientDescentOptimizer(1.),
-                              discount_factor=discount_factor,
-                              experience_replay_memory=dqn.UniformExperienceReplayMemory(1, 1000, 32),
-                              freeze_interval=1)
-            eps_greedy = dqn.EpsilonGreedy(learner, 0.1, 0.95, 0.1)
+            learner = dqn.DQN(network_builder=build_network,
+                              state_dim=[1],
+                              num_actions=gridworld.num_actions,
+                              optimizer=tf.train.GradientDescentOptimizer(0.5),  # 0.5 SGD step is equivalent to alpha=1
+                              discount_factor=gridworld.discount_factor,
+                              exploration=dqn.EpsilonGreedy(0.1),
+                              experience_replay_memory=dqn.UniformExperienceReplayMemory(1))
 
             session.run(tf.initialize_all_variables())
-
-            assert len(sys.argv) > 1
-            summary_writer = tf.train.SummaryWriter(
-                "%s/%s" % (sys.argv[1], datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')))
 
             current_state = (0, 0)
             cumulative_reward = 0
             episode_t = 0
             for t in range(500):
-                action_ = eps_greedy.get_action(state_index(current_state))
-                next_state_ = transition(current_state, action_)
-                reward_ = reward_function(next_state_)
-                learner.update(state_index(current_state), action_, state_index(next_state_), reward_)
-                eps_greedy.update()
-                cumulative_reward += discount_factor ** episode_t * reward_
+                action_ = learner.get_action(state_index(current_state))
+                next_state_ = gridworld.transition(current_state, action_)
+                reward_ = gridworld.reward_function(next_state_)
+                cumulative_reward += gridworld.discount_factor ** episode_t * reward_
                 episode_t += 1
-                if next_state_[0] == num_actions and next_state_[1] == num_actions:
+                is_terminal = gridworld.is_terminal(next_state_)
+                learner.update(state_index(current_state), action_, state_index(next_state_), reward_, is_terminal)
+                if is_terminal:
                     current_state = (0, 0)
 
                     print("Finished episode in t=%d - reward:%f" % (t, cumulative_reward))
@@ -62,13 +51,3 @@ if __name__ == '__main__':
                     episode_t = 0
                 else:
                     current_state = next_state_
-
-                '''
-                summary_writer.add_summary(
-                    session.run(tf.merge_all_summaries(), feed_dict={
-                        learner._state: state_index(current_state), learner._action: action_,
-                        learner._next_state: state_index(next_state_), learner._reward: reward_
-                    }))
-                    '''
-
-
