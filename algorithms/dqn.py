@@ -2,6 +2,7 @@ import collections
 import numpy as np
 import tensorflow as tf
 import util.ring_buffer
+import util.tensor
 
 Statistics = collections.namedtuple('Statistics', ['mean_q', 'epsilon'])
 
@@ -133,24 +134,24 @@ class DQN:
         self._exploration = exploration
         self._samples_since_update = 0
 
-        with tf.variable_scope('online_network'):
+        with tf.variable_op_scope([], 'online_network'):
             self._q = self._build_network(self._state, False)
 
-        with tf.variable_scope('target_network'):
+        with tf.variable_op_scope([], 'target_network'):
             next_q_values_target_net = self._build_network(self._next_state, False)
 
         if double_dqn:
-            with tf.variable_scope('target_network', reuse=True):
+            with tf.variable_op_scope([], 'target_network', reuse=True):
                 next_q_values_q_net = self._build_network(self._next_state, True)
-                self._max_next_q = self._array_indexing(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
+                self._max_next_q = util.tensor.index(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
         else:
             self._max_next_q = tf.reduce_max(next_q_values_target_net, 1)
 
-        with tf.variable_scope('target_network', reuse=True):
+        with tf.variable_op_scope([], 'target_network', reuse=True):
             q_values = tf.squeeze(self._build_network(self._state, True))
             self._max_action = tf.squeeze(tf.gather(np.arange(self._num_actions), tf.argmax(q_values, 0)))
 
-        q_a = self._array_indexing(self._q, self._action)
+        q_a = util.tensor.index(self._q, self._action)
 
         td_error = 2 * (self._reward + discount_factor * self._target_q_factor * self._max_next_q - q_a)
         if loss_clip_threshold is None:
@@ -265,28 +266,14 @@ class DQN:
 
     def _copy_weights(self):
         ops = []
-        with tf.variable_scope('target_network', reuse=True):
+        with tf.variable_op_scope([], 'target_network', reuse=True):
             for variable in self._scope_collection('online_network'):
                 ops.append(tf.get_variable(variable.name.split('/', 1)[1].split(':', 1)[0]).assign(variable))
         return ops
 
     @staticmethod
-    def _print_gradient(update_op, gradient):
-        ops = []
-        for grad, var in gradient:
-            ops.append(tf.Print(grad, [grad], summarize=1000))
-        with tf.control_dependencies(ops + [update_op]):
-            return tf.no_op()
-
-    @staticmethod
     def _scope_collection(scope):
         return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
-
-    @staticmethod
-    def _array_indexing(tensor, index_tensor):
-        one_hot_indices = tf.reshape(tf.one_hot(index_tensor, tf.shape(tensor)[1], 1., 0., axis=-1),
-                                     [-1, tf.shape(tensor)[1], 1])
-        return tf.squeeze(tf.batch_matmul(tf.reshape(tensor, [-1, 1, tf.shape(tensor)[1]]), one_hot_indices))
 
 
 class EpsilonGreedy:
