@@ -10,21 +10,20 @@ import algorithms.history
 history_length = 1
 state_dim = [4]
 num_actions = 2
-optimizer = tf.train.AdagradOptimizer(1e-1)
+optimizer = tf.train.RMSPropOptimizer(1e-3, decay=0.995, epsilon=0.01)
 update_interval = 1
 freeze_interval = 1
 discount_factor = 0.9
-exploration = dqn.EpsilonGreedy(0.0)
-buffer_size = 10000
-mini_batch_size = 30
+exploration = dqn.EpsilonGreedy(0)
+buffer_size = 10000000
+mini_batch_size = 500
 double_dqn = True
 create_summaries = True
 
 
 def build_network(state, reuse):
     input_size = 4 * history_length
-    hidden1_size = 16
-    hidden2_size = 16
+    hidden1_size = 80
     output_size = 2
     state = tf.reshape(state, [-1, input_size])
 
@@ -33,16 +32,11 @@ def build_network(state, reuse):
     hidden1_b = tf.get_variable("hidden1_b", shape=[hidden1_size], initializer=tf.constant_initializer(0.))
     hidden1 = tf.nn.relu(tf.nn.bias_add(tf.matmul(state, hidden1_W), hidden1_b), name="hidden1")
 
-    hidden2_W = tf.get_variable("hidden2_W", shape=[hidden1_size, hidden2_size],
-                                initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden1_size))
-    hidden2_b = tf.get_variable("hidden2_b", shape=[hidden2_size], initializer=tf.constant_initializer(0.))
-    hidden2 = tf.nn.relu(tf.nn.bias_add(tf.matmul(hidden1, hidden2_W), hidden2_b), name="hidden2")
-
-    output_W = tf.get_variable("output_W", shape=[hidden2_size, output_size],
-                               initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden2_size))
+    output_W = tf.get_variable("output_W", shape=[hidden1_size, output_size],
+                               initializer=tf.truncated_normal_initializer(mean=0, stddev=1/hidden1_size))
     output_b = tf.get_variable("output_b", shape=[output_size], initializer=tf.constant_initializer(0))
 
-    return tf.nn.bias_add(tf.matmul(hidden2, output_W), output_b, name="Q")
+    return tf.nn.bias_add(tf.matmul(hidden1, output_W), output_b, name="Q")
 
 
 if __name__ == '__main__':
@@ -55,7 +49,7 @@ if __name__ == '__main__':
             summary_dir = sys.argv[1] + '/summaries'
 
             env = gym.make("CartPole-v0")
-            env.monitor.start(sys.argv[1] + '/monitor', force=True)
+            #env.monitor.start(sys.argv[1] + '/monitor', force=True)
 
             if history_length > 1:
                 learner, env = algorithms.history.create_dqn_with_history(
