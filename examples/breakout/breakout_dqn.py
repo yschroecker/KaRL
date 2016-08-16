@@ -21,17 +21,17 @@ def build_network(num_actions, state, reuse):
         tf.image_summary(tf.get_variable_scope().name + "/state 2", state[:, :, :, 2:3])
         tf.image_summary(tf.get_variable_scope().name + "/state 3", state[:, :, :, 3:4])
 
-    conv1 = tflearn.conv_2d(state, 16, filter_size=8, strides=4, weights_init='uniform_scaling',
+    conv1 = tflearn.conv_2d(state, 32, filter_size=8, strides=4, weights_init='uniform_scaling', bias_init=0.1,
                             activation='relu', name="conv1", reuse=None)
-    conv2 = tflearn.conv_2d(conv1, 32, filter_size=4, strides=2, weights_init='uniform_scaling',
+    conv2 = tflearn.conv_2d(conv1, 64, filter_size=4, strides=2, weights_init='uniform_scaling', bias_init=0.1,
                             activation='relu', name="conv2", reuse=None)
-    dense1 = tflearn.fully_connected(conv2, 512, activation='relu',
-                                     weights_init='uniform_scaling', name="dense1", reuse=None)
-    output = tflearn.fully_connected(dense1, num_actions, weights_init='uniform_scaling',
+    conv3 = tflearn.conv_2d(conv2, 64, filter_size=3, strides=2, weights_init='uniform_scaling', bias_init=0.1,
+                            activation='relu', name="conv3", reuse=None)
+    dense1 = tflearn.fully_connected(conv3, 512, activation='relu', weights_init='uniform_scaling', bias_init=0.1,
+                                     name="dense1", reuse=None)
+    output = tflearn.fully_connected(dense1, num_actions, weights_init='uniform_scaling', bias_init=0.1,
                                      name="output", reuse=None)
     return output
-
-
 
 
 def transform_state(state):
@@ -52,6 +52,10 @@ class EnvWrapper:
         next_state, reward, is_terminal, info = self._env.step(action)
         return transform_state(next_state), reward, is_terminal, info
 
+    def init_live(self):
+        self._env.step(1)
+        for i in range(np.random.randint(30)):
+            self._env.step(0)
 
 if __name__ == '__main__':
     with tf.device('gpu:0'):
@@ -75,7 +79,7 @@ if __name__ == '__main__':
             num_actions=gym_env.action_space.n,
             environment=EnvWrapper(gym_env),
             optimizer=tf.train.RMSPropOptimizer(learning_rate=0.00025, decay=0.95, epsilon=0.01),
-            update_interval=4,
+            update_interval=1,
             replay_memory_type=dqn.UniformExperienceReplayMemory,
             freeze_interval=10000,
             discount_factor=0.99,
@@ -118,12 +122,12 @@ if __name__ == '__main__':
         cumulative_num_steps = 0
         ema_beta = 0.99
         avg_q = 0
-        frame_skip = 1
+        frame_skip = 4
         updates = 0
         for episode in tqdm_range:
             state = env.reset()
-            gym_env.step(1)
             is_terminal = False
+            env.init_live()
             cumulative_reward = 0
             num_steps = 0
             episode_q = 0
@@ -141,7 +145,7 @@ if __name__ == '__main__':
                         episode_q += learner.update(state, action, next_state, -1, True).mean_q
                         current_lives = gym_env.ale.lives()
                         if not is_terminal:
-                            gym_env.step(1)
+                            env.init_live()
                         updates += 1
                     elif num_steps % frame_skip == 0:
                         episode_q += learner.update(state, action, next_state, reward, False).mean_q

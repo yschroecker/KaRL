@@ -17,7 +17,7 @@ discount_factor = 0.9
 exploration = dqn.EpsilonGreedy(0)
 buffer_size = 10000000
 mini_batch_size = 500
-double_dqn = True
+td_rule = 'double-q-learning'
 create_summaries = True
 
 
@@ -66,7 +66,7 @@ if __name__ == '__main__':
                     buffer_size=buffer_size,
                     mini_batch_size=mini_batch_size,
                     replay_memory_type=dqn.UniformExperienceReplayMemory,
-                    double_dqn=double_dqn,
+                    td_rule=td_rule,
                     create_summaries=create_summaries)
             else:
                 learner = dqn.DQN(
@@ -79,7 +79,7 @@ if __name__ == '__main__':
                     discount_factor=discount_factor,
                     exploration=exploration,
                     experience_replay_memory=dqn.UniformExperienceReplayMemory(state_dim, buffer_size, mini_batch_size),
-                    double_dqn=double_dqn,
+                    td_rule=td_rule,
                     create_summaries=create_summaries)
 
             session.run(tf.initialize_all_variables())

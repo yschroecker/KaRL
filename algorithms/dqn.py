@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 import util.ring_buffer
 import util.tensor
+import algorithms.temporal_difference as td
 
 Statistics = collections.namedtuple('Statistics', ['mean_q', 'epsilon'])
 
@@ -71,7 +72,7 @@ class DQN:
     """
     def __init__(self, network_builder, state_dim, num_actions, optimizer, discount_factor, experience_replay_memory,
                  exploration, update_interval=1, freeze_interval=1, loss_clip_threshold=None, loss_clip_mode='linear',
-                 double_dqn=False, create_summaries=False, minimum_memory_size=0,
+                 td_rule='q-learning', create_summaries=False, minimum_memory_size=0,
                  state_preprocessor=lambda x, y=None: x if y is None else (x, y),
                  global_step=tf.get_variable("dqn_step", shape=[], dtype=tf.int32,
                                              initializer=tf.constant_initializer(0), trainable=False)):
@@ -119,13 +120,7 @@ class DQN:
             Step counter. Uses tf variable 'dqn_step' by default
         """
         self._dqn_step = global_step
-        self._build_network = network_builder
         self._num_actions = num_actions
-        self._state = tf.placeholder(tf.float32, shape=[None] + state_dim, name="state")
-        self._next_state = tf.placeholder(tf.float32, shape=[None] + state_dim, name="state")
-        self._action = tf.placeholder(tf.int64, shape=[None], name="action")
-        self._reward = tf.placeholder(tf.float32, shape=[None])
-        self._target_q_factor = tf.placeholder(tf.float32, shape=[None])
         self._experience_replay_memory = experience_replay_memory
         self._freeze_interval = freeze_interval
         self._update_interval = update_interval
@@ -134,54 +129,20 @@ class DQN:
         self._exploration = exploration
         self._samples_since_update = 0
 
-        with tf.variable_op_scope([], 'online_network'):
-            self._q = self._build_network(self._state, False)
+        self._state = tf.placeholder(tf.float32, shape=[None] + state_dim, name="state")
+        self._next_state = tf.placeholder(tf.float32, shape=[None] + state_dim, name="next_state")
+        self._action = tf.placeholder(tf.int64, shape=[None], name="action")
+        self._reward = tf.placeholder(tf.float32, shape=[None], name="reward")
+        self._target_q_factor = tf.placeholder(tf.float32, shape=[None])  # 0 for terminal states.
 
-        with tf.variable_op_scope([], 'target_network'):
-            next_q_values_target_net = self._build_network(self._next_state, False)
-
-        if double_dqn:
-            with tf.variable_op_scope([], 'target_network', reuse=True):
-                next_q_values_q_net = self._build_network(self._next_state, True)
-                self._max_next_q = util.tensor.index(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
-        else:
-            self._max_next_q = tf.reduce_max(next_q_values_target_net, 1)
-
-        with tf.variable_op_scope([], 'target_network', reuse=True):
-            q_values = tf.squeeze(self._build_network(self._state, True))
-            self._max_action = tf.squeeze(tf.gather(np.arange(self._num_actions), tf.argmax(q_values, 0)))
-
-        q_a = util.tensor.index(self._q, self._action)
-
-        td_error = 2 * (self._reward + discount_factor * self._target_q_factor * self._max_next_q - q_a)
-        if loss_clip_threshold is None:
-            self._td_loss = tf.reduce_sum(td_error ** 2)
-        elif loss_clip_mode == 'linear':
-            self._td_loss = tf.reduce_sum(tf.minimum(td_error, loss_clip_threshold) ** 2 +
-                                          tf.maximum(td_error - loss_clip_threshold, 0))
-        elif loss_clip_mode == 'absolute':
-            self._td_loss = tf.reduce_sum(tf.clip_by_value(td_error, 0, loss_clip_threshold) ** 2)
-
-        self._td_loss += sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, 'online_network'))
-
-        self._optimizer = optimizer
-
-        td_gradient = self._optimizer.compute_gradients(self._td_loss, self._scope_collection('online_network'))
-        self._update_op = self._optimizer.apply_gradients(td_gradient, global_step=self._dqn_step)
-        self._copy_weight_ops = self._copy_weights()
+        self._td_learner = td.TemporalDifferenceLearner(
+            network_builder=network_builder, optimizer=optimizer, num_actions=num_actions,
+            discount_factor=discount_factor, td_rule=td_rule, loss_clip_threshold=loss_clip_threshold,
+            loss_clip_mode=loss_clip_mode, create_summaries=create_summaries, global_step=global_step,
+            state=self._state, action=self._action, reward=self._reward, next_state=self._next_state,
+            target_q_factor=self._target_q_factor)
 
         self._last_batch_feed_dict = None
-        if create_summaries:
-            for variable in self._scope_collection('online_network'):
-                tf.histogram_summary(variable.name, variable)
-            for variable in self._scope_collection('target_network'):
-                tf.histogram_summary(variable.name, variable)
-            for gradient, variable in td_gradient:
-                tf.histogram_summary(variable.name + "_gradient", gradient)
-            tf.scalar_summary("sample-R", tf.reduce_mean(self._reward))
-            tf.scalar_summary("q", tf.reduce_mean(self._q))
-            tf.scalar_summary("td loss", self._td_loss)
-            self._summary_op = tf.merge_all_summaries()
 
     def add_summaries(self, summary_writer, episode):
         """
@@ -190,7 +151,7 @@ class DQN:
             Int denoting the current episode
         """
         if self._last_batch_feed_dict is not None:
-            summary_writer.add_summary(tf.get_default_session().run(self._summary_op,
+            summary_writer.add_summary(tf.get_default_session().run(self._td_learner.summary_op,
                                                                     feed_dict=self._last_batch_feed_dict), episode)
 
     def update(self, state, action, next_state, reward, is_terminal):
@@ -235,11 +196,11 @@ class DQN:
             #     f.write(trace.generate_chrome_trace_format())
             # sys.exit(0)
 
-            mini_batch_q, td_loss, _ = tf.get_default_session().run([self._q, self._td_loss, self._update_op],
-                                                                    feed_dict=feed_dict)
+            mini_batch_q, td_loss, _ = tf.get_default_session().run([self._td_learner.q, self._td_learner.td_loss,
+                                                                     self._td_learner.update_op], feed_dict=feed_dict)
 
             if self._dqn_step.eval() % self._freeze_interval == 0:
-                tf.get_default_session().run(self._copy_weight_ops, feed_dict=feed_dict)
+                tf.get_default_session().run(self._td_learner.copy_weights_ops, feed_dict=feed_dict)
 
             return Statistics(np.mean(mini_batch_q), self._exploration.epsilon)
         return Statistics(0, self._exploration.epsilon)
@@ -248,7 +209,7 @@ class DQN:
         """
         Returns the greedy action for evaluation
         """
-        return self._max_action.eval(feed_dict={self._state: self._preprocess_states([state])})
+        return self._td_learner.max_action.eval(feed_dict={self._state: self._preprocess_states([state])})
 
     def get_action(self, state):
         """
@@ -263,17 +224,6 @@ class DQN:
             A set of all actions
         """
         return np.arange(self._num_actions)
-
-    def _copy_weights(self):
-        ops = []
-        with tf.variable_op_scope([], 'target_network', reuse=True):
-            for variable in self._scope_collection('online_network'):
-                ops.append(tf.get_variable(variable.name.split('/', 1)[1].split(':', 1)[0]).assign(variable))
-        return ops
-
-    @staticmethod
-    def _scope_collection(scope):
-        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
 
 
 class EpsilonGreedy:
