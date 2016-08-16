@@ -18,9 +18,9 @@ class TemporalDifferenceLearner:
             next_q_values_target_net = build_network(next_state, False)
 
         if td_rule == 'double-q-learning':
-            with tf.variable_op_scope([], 'target_network', reuse=True):
+            with tf.variable_op_scope([], 'online_network', reuse=True):
                 next_q_values_q_net = build_network(next_state, True)
-                self._max_next_q = util.tensor.index(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
+            self._max_next_q = util.tensor.index(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
         elif td_rule == 'q-learning':
             self._max_next_q = tf.reduce_max(next_q_values_target_net, 1)
         else:
