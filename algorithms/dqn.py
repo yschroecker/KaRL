@@ -135,12 +135,12 @@ class DQN:
         self._reward = tf.placeholder(tf.float32, shape=[None], name="reward")
         self._target_q_factor = tf.placeholder(tf.float32, shape=[None])  # 0 for terminal states.
 
-        self._td_learner = td.TemporalDifferenceLearner(
+        self._td_learner = td.TemporalDifferenceLearnerQ(
             network_builder=network_builder, optimizer=optimizer, num_actions=num_actions,
             discount_factor=discount_factor, td_rule=td_rule, loss_clip_threshold=loss_clip_threshold,
             loss_clip_mode=loss_clip_mode, create_summaries=create_summaries, global_step=global_step,
             state=self._state, action=self._action, reward=self._reward, next_state=self._next_state,
-            target_q_factor=self._target_q_factor)
+            target_factor=self._target_q_factor)
 
         self._last_batch_feed_dict = None
 

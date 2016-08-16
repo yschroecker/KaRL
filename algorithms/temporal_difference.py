@@ -4,35 +4,11 @@ import util.tensor
 
 
 class TemporalDifferenceLearner:
-    def __init__(self, network_builder, optimizer, num_actions, discount_factor, td_rule, loss_clip_threshold,
-                 loss_clip_mode, create_summaries, global_step,
-                 state, action, reward, next_state, target_q_factor):
+    def __init__(self, optimizer, loss_clip_threshold,
+                 loss_clip_mode, create_summaries, global_step, td_error):
         self._global_step = global_step
-        build_network = network_builder
         self._optimizer = optimizer
 
-        with tf.variable_op_scope([], 'online_network'):
-            self.q = build_network(state, False)
-
-        with tf.variable_op_scope([], 'target_network'):
-            next_q_values_target_net = build_network(next_state, False)
-
-        if td_rule == 'double-q-learning':
-            with tf.variable_op_scope([], 'online_network', reuse=True):
-                next_q_values_q_net = build_network(next_state, True)
-            self._max_next_q = util.tensor.index(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
-        elif td_rule == 'q-learning':
-            self._max_next_q = tf.reduce_max(next_q_values_target_net, 1)
-        else:
-            assert False
-
-        with tf.variable_op_scope([], 'target_network', reuse=True):
-            q_values = tf.squeeze(build_network(state, True))
-            self.max_action = tf.squeeze(tf.gather(np.arange(num_actions), tf.argmax(q_values, 0)))
-
-        q_a = util.tensor.index(self.q, action)
-
-        td_error = 2 * (reward + discount_factor * target_q_factor * self._max_next_q - q_a)
         if loss_clip_threshold is None:
             self.td_loss = tf.reduce_sum(td_error ** 2)
         elif loss_clip_mode == 'linear':
@@ -55,8 +31,6 @@ class TemporalDifferenceLearner:
                 tf.histogram_summary(variable.name, variable)
             for gradient, variable in td_gradient:
                 tf.histogram_summary(variable.name + "_gradient", gradient)
-            tf.scalar_summary("sample-R", tf.reduce_mean(reward))
-            tf.scalar_summary("q", tf.reduce_mean(self.q))
             tf.scalar_summary("td loss", self.td_loss)
             self.summary_op = tf.merge_all_summaries()
 
@@ -70,3 +44,55 @@ class TemporalDifferenceLearner:
     @staticmethod
     def _scope_collection(scope):
         return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
+
+
+class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
+    def __init__(self, network_builder, optimizer, num_actions, discount_factor, td_rule, loss_clip_threshold,
+                 loss_clip_mode, create_summaries, global_step, state, action, reward, next_state, target_factor):
+        with tf.variable_op_scope([], 'online_network'):
+            self.q = network_builder(state, False)
+
+        with tf.variable_op_scope([], 'target_network'):
+            next_q_values_target_net = network_builder(next_state, False)
+
+        if td_rule == 'double-q-learning':
+            with tf.variable_op_scope([], 'online_network', reuse=True):
+                next_q_values_q_net = network_builder(next_state, True)
+            self._max_next_q = util.tensor.index(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
+        elif td_rule == 'q-learning':
+            self._max_next_q = tf.reduce_max(next_q_values_target_net, 1)
+        else:
+            assert False
+
+        with tf.variable_op_scope([], 'target_network', reuse=True):
+            q_values = tf.squeeze(network_builder(state, True))
+            self.max_action = tf.squeeze(tf.gather(np.arange(num_actions), tf.argmax(q_values, 0)))
+
+        q_a = util.tensor.index(self.q, action)
+
+        if create_summaries:
+            tf.scalar_summary("q", tf.reduce_mean(self.q))
+            tf.scalar_summary("sample-R", tf.reduce_mean(reward))
+
+        td_error = reward + discount_factor * target_factor * self._max_next_q - q_a
+
+        super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, global_step, td_error)
+
+
+class TemporalDifferenceLearnerV(TemporalDifferenceLearner):
+    def __init__(self, network_builder, optimizer, discount_factor, loss_clip_threshold,
+                 loss_clip_mode, create_summaries, global_step, state, reward, next_state, target_factor):
+        with tf.variable_op_scope([], 'online_network'):
+            self.v = network_builder(state, False)
+
+        with tf.variable_op_scope([], 'target_network'):
+            self.next_v = network_builder(next_state, False)
+
+        if create_summaries:
+            tf.scalar_summary("v", tf.reduce_mean(self.v))
+            tf.scalar_summary("sample-R", tf.reduce_mean(reward))
+
+        td_error = reward + discount_factor * target_factor * self.next_v - self.v
+
+        super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, global_step, td_error)
+

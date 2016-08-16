@@ -42,6 +42,9 @@ class GradientWrapper:
         else:
             return GradientWrapper([(grad + other, var) for grad, var in self._gradient])
 
+    def __rsub__(self, other):
+        return other.__sub__(self)
+
     def __sub__(self, other):
         if type(other) is GradientWrapper:
             return GradientWrapper(gradient_op(self._gradient, other._gradient, lambda x, y: x - y))
