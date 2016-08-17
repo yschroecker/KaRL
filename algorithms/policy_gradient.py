@@ -28,7 +28,10 @@ class DiscretePolicy:
 
 class AdvantageActorCritic:
     def __init__(self, state_dim, policy, value_network_builder, actor_optimizer, critic_optimizer,
-                 discount_factor, steps_per_update=30):
+                 discount_factor, loss_clip_threshold=1, loss_clip_mode='linear', create_summaries=True,
+                 global_step=tf.get_variable("ac_step", shape=[], dtype=tf.int32,
+                                             initializer=tf.constant_initializer(0), trainable=False),
+                 steps_per_update=30):
 
         self._policy = policy
 
@@ -43,14 +46,12 @@ class AdvantageActorCritic:
         self._steps_since_update = 0
 
         self._td_learner = td.TemporalDifferenceLearnerV(value_network_builder, critic_optimizer, discount_factor,
-                                                         1, 'linear', False,  # TODO: make parameters
-                                                         tf.get_variable("ac_step", shape=[], dtype=tf.int32,
-                                                                         initializer=tf.constant_initializer(0),
-                                                                         trainable=False),
-                                                         self._state, self._reward, self._next_state,
-                                                         self._target_factor)
+                                                         loss_clip_threshold=loss_clip_threshold,
+                                                         loss_clip_mode=loss_clip_mode,
+                                                         create_summaries=create_summaries, global_step=global_step,
+                                                         state=self._state, reward=self._reward,
+                                                         next_state=self._next_state, target_factor=self._target_factor)
 
-        # TODO: check if target or online network is used correctly
         advantages = self._reward + discount_factor * self._td_learner.next_v - self._td_learner.v
         policy_gradient = actor_optimizer.compute_gradients(tf.reduce_mean(
             -policy.log_policy(self._state, self._action) * advantages), var_list=policy.variables)
