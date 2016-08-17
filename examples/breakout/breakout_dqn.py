@@ -156,7 +156,8 @@ if __name__ == '__main__':
                 num_steps += 1
             #print("reward %f in episode %d after %d steps (%f)" % (cumulative_reward, episode, num_steps, exploration._epsilon))
             cumulative_reward_avg = ema_beta * cumulative_reward_avg + (1 - ema_beta) * cumulative_reward
-            avg_q = ema_beta * avg_q + (1 - ema_beta) * episode_q/updates
+            if not test_mode:
+                avg_q = ema_beta * avg_q + (1 - ema_beta) * episode_q/updates
             if cumulative_num_steps // 50000 < (cumulative_num_steps + num_steps) // 50000:
                 print()
             cumulative_num_steps += num_steps

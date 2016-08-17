@@ -28,7 +28,7 @@ class DiscretePolicy:
 
 class AdvantageActorCritic:
     def __init__(self, state_dim, policy, value_network_builder, actor_optimizer, critic_optimizer,
-                 discount_factor):
+                 discount_factor, steps_per_update=30):
 
         self._policy = policy
 
@@ -39,6 +39,8 @@ class AdvantageActorCritic:
         self._next_state = tf.placeholder(tf.float32, shape=[None] + state_dim, name="next_state")
         self._reward = tf.placeholder(tf.float32, shape=[None], name="reward")
         self._target_factor = tf.placeholder(tf.float32, shape=[None])  # 0 for terminal states.
+        self._steps_per_update = steps_per_update
+        self._steps_since_update = 0
 
         self._td_learner = td.TemporalDifferenceLearnerV(value_network_builder, critic_optimizer, discount_factor,
                                                          1, 'linear', False,  # TODO: make parameters
@@ -50,8 +52,8 @@ class AdvantageActorCritic:
 
         # TODO: check if target or online network is used correctly
         advantages = self._reward + discount_factor * self._td_learner.next_v - self._td_learner.v
-        policy_gradient = actor_optimizer.compute_gradients(-policy.log_policy(self._state, self._action) *
-                                                            advantages)
+        policy_gradient = actor_optimizer.compute_gradients(tf.reduce_mean(
+            -policy.log_policy(self._state, self._action) * advantages), var_list=policy.variables)
         self._actor_update = actor_optimizer.apply_gradients(policy_gradient)
 
     def update(self, state, action, next_state, reward, is_terminal):
@@ -62,7 +64,8 @@ class AdvantageActorCritic:
         self._observed_rewards.append(reward)
         self._observed_target_factors.append(0 if is_terminal else 1)
 
-        if is_terminal:  # TODO: generalize
+        self._steps_since_update += 1
+        if is_terminal or self._steps_since_update >= self._steps_per_update:
             feed_dict = {self._state: self._observed_states,
                          self._action: self._observed_actions,
                          self._next_state: self._observed_next_states,
@@ -73,6 +76,7 @@ class AdvantageActorCritic:
             self._td_learner.update_op.run(feed_dict=feed_dict)
             tf.get_default_session().run(self._td_learner.copy_weights_ops, feed_dict=feed_dict)
 
+            self._steps_since_update = 0
             self._empty_observervations()
 
     def get_action(self, state):
