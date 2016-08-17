@@ -22,8 +22,11 @@ class DiscretePolicy:
         return tf.log(policy_action)
 
     def sample(self, state):
-        probabilities = self._policy.eval(feed_dict={self._states: [state]})[0]
+        probabilities = self.state_probabilities(state)
         return np.random.choice(np.arange(self._num_actions), p=probabilities)
+
+    def state_probabilities(self, state):
+        return self._policy.eval(feed_dict={self._states: [state]})[0]
 
 
 class AdvantageActorCritic:
@@ -47,7 +50,7 @@ class AdvantageActorCritic:
 
         self._td_learner = td.TemporalDifferenceLearnerV(value_network_builder, critic_optimizer, discount_factor,
                                                          loss_clip_threshold=loss_clip_threshold,
-                                                         loss_clip_mode=loss_clip_mode,
+                                                         loss_clip_mode=loss_clip_mode, td_rule='1-step',
                                                          create_summaries=create_summaries, global_step=global_step,
                                                          state=self._state, reward=self._reward,
                                                          next_state=self._next_state, target_factor=self._target_factor)

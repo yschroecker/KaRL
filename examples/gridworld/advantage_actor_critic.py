@@ -54,7 +54,7 @@ if __name__ == '__main__':
                 if is_terminal:
                     current_state = (0, 0)
 
-                    print("Finished episode in t=%d - reward:%f" % (t, cumulative_reward))
+                    print("Finished episode in t=%d - reward:%f - %r" % (t, cumulative_reward, policy.state_probabilities([0]).tolist()))
                     cumulative_reward = 0
                     episode_t = 0
                 else:
