@@ -25,7 +25,7 @@ def build_value_network(states, reuse):
     weights = tf.get_variable("value_weights", shape=[input_dim, 1],
                               initializer=tf.constant_initializer(1))
 
-    return tf.squeeze(tf.matmul(state, weights))
+    return tf.matmul(state, weights)
 
 if __name__ == '__main__':
     np.seterr(all='raise')

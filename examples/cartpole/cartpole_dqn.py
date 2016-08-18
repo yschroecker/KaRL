@@ -91,7 +91,7 @@ if __name__ == '__main__':
             for episode in range(10000):
                 state = env.reset()
                 cumulative_reward = 0
-                while True:
+                for t in range(200):
                     action = learner.get_action(state)
                     next_state, reward, is_terminal, _ = env.step(action)
                     if is_terminal:
@@ -106,6 +106,6 @@ if __name__ == '__main__':
                 last_100.append(cumulative_reward)
                 last_100_mean = np.mean(last_100)
                 print("Episode %d: %f(%f)" % (episode, last_100_mean, statistics.epsilon))
-                if last_100_mean > 195:
+                if len(last_100) == 100 and last_100_mean > 195:
                     break
 
