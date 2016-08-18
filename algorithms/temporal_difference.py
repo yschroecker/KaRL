@@ -21,32 +21,22 @@ class TemporalDifferenceLearner:
         self.td_loss += sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, 'online_network'))
         # self.td_loss = tf.Print(self.td_loss, [self.td_loss], message="loss")
 
-        td_gradient = self._optimizer.compute_gradients(self.td_loss, var_list=self._scope_collection('online_network'))
+        td_gradient = self._optimizer.compute_gradients(self.td_loss,
+                                                        var_list=util.tensor.scope_collection('online_network'))
 
         self.update_op = self._optimizer.apply_gradients(td_gradient, global_step=self._global_step)
         # self.update_op = util.debug.print_gradient(self.update_op, td_gradient, message='dtd')
-        self.copy_weights_ops = self._copy_weights()
+        self.copy_weights_ops = util.tensor.copy_parameters('online_network', 'target_network')
 
         if create_summaries:
-            for variable in self._scope_collection('online_network'):
+            for variable in util.tensor.scope_collection('online_network'):
                 tf.histogram_summary(variable.name, variable)
-            for variable in self._scope_collection('target_network'):
+            for variable in util.tensor.scope_collection('target_network'):
                 tf.histogram_summary(variable.name, variable)
             for gradient, variable in td_gradient:
                 tf.histogram_summary(variable.name + "_gradient", gradient)
             tf.scalar_summary("td loss", self.td_loss)
             self.summary_op = tf.merge_all_summaries()
-
-    def _copy_weights(self):
-        ops = []
-        with tf.variable_op_scope([], 'target_network', reuse=True):
-            for variable in self._scope_collection('online_network'):
-                ops.append(tf.get_variable(variable.name.split('/', 1)[1].split(':', 1)[0]).assign(variable))
-        return ops
-
-    @staticmethod
-    def _scope_collection(scope):
-        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
 
 
 class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
@@ -86,10 +76,10 @@ class TemporalDifferenceLearnerV(TemporalDifferenceLearner):
     def __init__(self, network_builder, optimizer, discount_factor, td_rule, loss_clip_threshold,
                  loss_clip_mode, create_summaries, global_step, state, reward, next_state, target_factor):
         with tf.variable_op_scope([], 'online_network'):
-            self.v = network_builder(state, False)
+            self.v = tf.squeeze(network_builder(state, False), squeeze_dims=[1])
 
         with tf.variable_op_scope([], 'target_network'):
-            self.next_v = network_builder(next_state, False)
+            self.next_v = tf.squeeze(network_builder(next_state, False), squeeze_dims=[1])
 
         if create_summaries:
             tf.scalar_summary("v", tf.reduce_mean(self.v))
@@ -98,10 +88,12 @@ class TemporalDifferenceLearnerV(TemporalDifferenceLearner):
         if td_rule == '1-step':
             td_error = reward + discount_factor * target_factor * self.next_v - self.v
         elif td_rule == 'deepmind-n-step':
+            last_v = tf.gather(self.next_v, tf.size(self.next_v) - 1)
             target = tf.reverse(
                 tf.scan(fn=lambda R, r: r + discount_factor * R,
                         elems=tf.reverse(reward, dims=[True]),
-                        initializer=self.next_v[-1]), dims=[True])
+                        initializer=last_v), dims=[True])
+
             td_error = target - self.v
         else:
             assert False, "invalid td_rule for TD-V"
@@ -111,8 +103,8 @@ class TemporalDifferenceLearnerV(TemporalDifferenceLearner):
         # # td_error = tf.Print(td_error, [td_error], message='err', summarize=1000)
         # td_error = tf.Print(td_error, [self.v], message='v', summarize=1000)
         # # td_error = tf.Print(td_error, [tf.shape(self.v)], message='v.shape', summarize=1000)
-        # td_error = tf.Print(td_error, [self.next_v], message="v'", summarize=1000)
-        # td_error = tf.Print(td_error, [tf.shape(self.next_v)], message="v'.shape", summarize=1000)
+        # td_error = tf.Print(td_error, [self.next_v], message="v'", summarize
+        # target = tf.Print(target, [target], message="target", summarize=100)   # td_error = tf.Print(td_error, [tf.shape(self.next_v)], message="v'.shape", summarize=1000)
         # td_error = tf.Print(td_error, [target_factor], message='f', summarize=1000)
 
         super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, global_step, td_error)

@@ -62,3 +62,16 @@ class GradientWrapper:
             return GradientWrapper(gradient_op(self._gradient, other._gradient, lambda x, y: x / y))
         else:
             return GradientWrapper([(grad / other, var) for grad, var in self._gradient])
+
+
+def scope_collection(scope):
+    return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, tf.get_variable_scope().name + "/?" + scope)
+
+
+def copy_parameters(source_scope, target_scope):
+    ops = []
+    for variable in scope_collection(source_scope):
+        with tf.variable_op_scope([], target_scope, reuse=True) as scope:
+            ops.append(tf.get_variable(variable.name[len(scope.name) + 1:].split(':', 1)[0]).assign(variable))
+    return ops
+
