@@ -18,13 +18,13 @@ class TemporalDifferenceLearner:
         elif loss_clip_mode == 'absolute':
             self.td_loss = tf.reduce_mean(tf.clip_by_value(td_error, 0, loss_clip_threshold) ** 2)
 
-        self.td_loss += sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, 'online_network'))
+        self.td_loss += sum(util.tensor.scope_collection('online_network', tf.GraphKeys.REGULARIZATION_LOSSES))
         # self.td_loss = tf.Print(self.td_loss, [self.td_loss], message="loss")
 
-        td_gradient = self._optimizer.compute_gradients(self.td_loss,
-                                                        var_list=util.tensor.scope_collection('online_network'))
+        self.td_gradient = self._optimizer.compute_gradients(self.td_loss,
+                                                             var_list=util.tensor.scope_collection('online_network'))
 
-        self.update_op = self._optimizer.apply_gradients(td_gradient, global_step=self._global_step)
+        # self.update_op = self._optimizer.apply_gradients(td_gradient, global_step=self._global_step)
         # self.update_op = util.debug.print_gradient(self.update_op, td_gradient, message='dtd')
         self.copy_weights_ops = util.tensor.copy_parameters('online_network', 'target_network')
 
@@ -33,7 +33,7 @@ class TemporalDifferenceLearner:
                 tf.histogram_summary(variable.name, variable)
             for variable in util.tensor.scope_collection('target_network'):
                 tf.histogram_summary(variable.name, variable)
-            for gradient, variable in td_gradient:
+            for gradient, variable in self.td_gradient:
                 tf.histogram_summary(variable.name + "_gradient", gradient)
             tf.scalar_summary("td loss", self.td_loss)
             self.summary_op = tf.merge_all_summaries()

@@ -11,9 +11,10 @@ class DiscretePolicy:
         self._num_actions = num_actions
         self._states = tf.placeholder(tf.float32, shape=[None] + state_dim, name="states")
 
-        with tf.variable_scope('policy_network'):
-            self._policy = policy_network_builder(self._states)
-        self.variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'policy_network')
+    def init(self):
+        with tf.variable_scope('policy_network', reuse=None):
+            self._policy = self._build_policy_network(self._states)
+        self.variables = util.tensor.scope_collection('policy_network', tf.GraphKeys.TRAINABLE_VARIABLES)
 
     def log_policy(self, state, action):
         with tf.variable_scope('policy_network', reuse=True):
@@ -29,7 +30,7 @@ class DiscretePolicy:
         return self._policy.eval(feed_dict={self._states: [state]})[0]
 
 
-class AdvantageActorCritic:
+class AdvantageActorCriticBase:
     def __init__(self, state_dim, policy, value_network_builder, actor_optimizer, critic_optimizer,
                  discount_factor, loss_clip_threshold=1, loss_clip_mode='linear', create_summaries=True,
                  global_step=tf.get_variable("ac_step", shape=[], dtype=tf.int32,
@@ -37,6 +38,7 @@ class AdvantageActorCritic:
                  steps_per_update=30):
 
         self._policy = policy
+        self._policy.init()
 
         self._empty_observervations()
 
@@ -56,12 +58,30 @@ class AdvantageActorCritic:
                                                          next_state=self._next_state, target_factor=self._target_factor)
 
         advantages = self._reward + discount_factor * self._td_learner.next_v - self._td_learner.v
-        policy_gradient = actor_optimizer.compute_gradients(tf.reduce_mean(
+        self._actor_gradients = actor_optimizer.compute_gradients(tf.reduce_mean(
             -policy.log_policy(self._state, self._action) * advantages), var_list=policy.variables)
-        self._actor_update = actor_optimizer.apply_gradients(policy_gradient)
+        self._critic_gradients = self._td_learner.td_gradient
+        self._actor_optimizer = actor_optimizer
+        self._critic_optimizer = critic_optimizer
+
+    def get_action(self, state):
+        return self._policy.sample(state)
+
+    def _empty_observervations(self):
+        self._observed_states = []
+        self._observed_actions = []
+        self._observed_next_states = []
+        self._observed_rewards = []
+        self._observed_target_factors = []
+
+
+class AdvantageActorCritic(AdvantageActorCriticBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._actor_update = self._actor_optimizer.apply_gradients(self._actor_gradients)
+        self._critic_update = self._critic_optimizer.apply_gradients(self._critic_gradients)
 
     def update(self, state, action, next_state, reward, is_terminal):
-        # TODO: make one op
         self._observed_states.append(state)
         self._observed_actions.append(action)
         self._observed_next_states.append(next_state)
@@ -77,21 +97,11 @@ class AdvantageActorCritic:
                          self._target_factor: self._observed_target_factors}
 
             self._actor_update.run(feed_dict=feed_dict)
-            self._td_learner.update_op.run(feed_dict=feed_dict)
+            self._critic_update.run(feed_dict=feed_dict)
             tf.get_default_session().run(self._td_learner.copy_weights_ops, feed_dict=feed_dict)
 
             self._steps_since_update = 0
             self._empty_observervations()
-
-    def get_action(self, state):
-        return self._policy.sample(state)
-
-    def _empty_observervations(self):
-        self._observed_states = []
-        self._observed_actions = []
-        self._observed_next_states = []
-        self._observed_rewards = []
-        self._observed_target_factors = []
 
 
 class REINFORCE:
@@ -105,6 +115,7 @@ class REINFORCE:
         self._episodes_actions = [tf.placeholder(tf.int32, shape=[None]) for _ in range(num_sample_episodes)]
         self._episodes_qs = [tf.placeholder(tf.float32, shape=[None]) for _ in range(num_sample_episodes)]
         self._policy = policy
+        self._policy.init()
         self._discount_factor = discount_factor
         self._episode_t = 0
         self._episode_counter = 0

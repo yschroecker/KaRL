@@ -31,7 +31,7 @@ if __name__ == '__main__':
     np.seterr(all='raise')
     with tf.device('/cpu:0'):
         with tf.Session() as session:
-            actor_optimizer = tf.train.RMSPropOptimizer(0.1, epsilon=0.01)
+            actor_optimizer = tf.train.RMSPropOptimizer(0.5)
             critic_optimizer = tf.train.GradientDescentOptimizer(0.5)
             policy = pg.DiscretePolicy([1], 4, build_policy_network, actor_optimizer)
             learner = pg.AdvantageActorCritic(policy=policy, value_network_builder=build_value_network, state_dim=[1],

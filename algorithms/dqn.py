@@ -141,6 +141,7 @@ class DQN:
             loss_clip_mode=loss_clip_mode, create_summaries=create_summaries, global_step=global_step,
             state=self._state, action=self._action, reward=self._reward, next_state=self._next_state,
             target_factor=self._target_q_factor)
+        self._update_op = optimizer.apply_gradients(self._td_learner.td_gradient)
 
         self._last_batch_feed_dict = None
 
@@ -197,7 +198,7 @@ class DQN:
             # sys.exit(0)
 
             mini_batch_q, td_loss, _ = tf.get_default_session().run([self._td_learner.q, self._td_learner.td_loss,
-                                                                     self._td_learner.update_op], feed_dict=feed_dict)
+                                                                     self._update_op], feed_dict=feed_dict)
 
             if self._dqn_step.eval() % self._freeze_interval == 0:
                 tf.get_default_session().run(self._td_learner.copy_weights_ops, feed_dict=feed_dict)
