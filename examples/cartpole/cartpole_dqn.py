@@ -84,7 +84,6 @@ if __name__ == '__main__':
 
             session.run(tf.initialize_all_variables())
 
-            os.mkdirs = summary_dir
             summary_writer = tf.train.SummaryWriter(summary_dir, session.graph)
 
             last_100 = collections.deque(maxlen=100)

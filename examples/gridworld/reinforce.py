@@ -20,7 +20,8 @@ if __name__ == '__main__':
         with tf.Session() as session:
             optimizer = tf.train.RMSPropOptimizer(0.5)
             policy = pg.DiscretePolicy([1], 4, build_network, optimizer)
-            learner = pg.REINFORCE(policy=policy, state_dim=[1], discount_factor=gridworld.discount_factor, optimizer=optimizer)
+            learner = pg.REINFORCE(policy=policy, state_dim=[1], discount_factor=gridworld.discount_factor,
+                                   optimizer=optimizer)
             session.run(tf.initialize_all_variables())
 
             current_state = (0, 0)

@@ -31,12 +31,13 @@ class AsyncAlgorithm:
 
 class Async:
     class MainInstance:
-        def __init__(self, build_algorithm):
+        def __init__(self, build_algorithm, session):
             self._scope_name = 'async_main'
             with tf.variable_scope(self._scope_name, reuse=None):
                 self.instance = build_algorithm()
             self._update_from_instance = {}
             self._copy_ops = {}
+            self._session = session
 
         def register_instance(self, async_instance):
             self._update_from_instance[async_instance] = \
@@ -45,10 +46,12 @@ class Async:
             self._copy_ops[async_instance] = util.tensor.copy_parameters(self._scope_name, async_instance.scope_name)
 
         def apply_gradient(self, async_instance, feed_dict):
-            tf.get_default_session().run(self._update_from_instance[async_instance], feed_dict=feed_dict)
+            session = tf.get_default_session() if self._session is None else self._session
+            session.run(self._update_from_instance[async_instance], feed_dict=feed_dict)
 
         def copy_parameters(self, async_instance):
-            tf.get_default_session().run(self._copy_ops[async_instance])
+            session = tf.get_default_session() if self._session is None else self._session
+            session.run(self._copy_ops[async_instance])
 
         def _redirect_gradients(self, async_instance):
             result = []
@@ -81,8 +84,8 @@ class Async:
                 self._initialized = True
             return self._instance.get_action(state)
 
-    def __init__(self, algorithm, num_instances):
-        self._main_instance = self.MainInstance(algorithm)
+    def __init__(self, algorithm, num_instances, session=None):
+        self._main_instance = self.MainInstance(algorithm, session)
         self._async_instances = [self.AsyncInstance(algorithm, i) for i in range(num_instances)]
         for async_instance in self._async_instances:
             self._main_instance.register_instance(async_instance)
