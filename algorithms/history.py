@@ -1,6 +1,7 @@
 import util.ring_buffer
 import numpy as np
 import algorithms.dqn as dqn
+import pickle
 
 
 class HistoryStateManager:
@@ -26,6 +27,26 @@ class HistoryStateManager:
         self._episode_counter = 0
         self._counter = 0
         self._buffer_size = buffer_size
+
+    @staticmethod
+    def _save_path(dir_path, name):
+        return "%s/history_%s" % (dir_path, name)
+
+    def save(self, dir_path, name):
+        assert self._valid
+        with open(self._save_path(dir_path, name), 'wb') as f:
+            pickle.dump([self._history_length, self._episode_counter, self._counter, self._buffer_size], f)
+        self._state_buffer.save(dir_path, "%s_history" % name)
+
+    @classmethod
+    def load(cls, dir_path, name):
+        history_manager = cls.__new__(cls)
+        with open(cls._save_path(dir_path, name), 'rb') as f:
+            [history_manager._history_length, history_manager._episode_counter,
+             history_manager._counter, history_manager._buffer_size] = pickle.load(f)
+
+        history_manager._state_buffer = util.ring_buffer.RingBuffer.load(dir_path,  "%s_history" % name)
+        return history_manager
 
     def new_episode(self):
         """
@@ -113,6 +134,12 @@ class EnvironmentWithHistory:
         self._env = environment
         self._history = history_manager
 
+    def save(self, dir_path, name):
+        self._history.save(dir_path, name)
+
+    def load(self, dir_path, name):
+        self._history = HistoryStateManager.load(dir_path, name)
+
     def reset(self):
         """
         Starts a new episode
@@ -133,6 +160,9 @@ class EnvironmentWithHistory:
         next_state, reward, is_terminal, info = self._env.step(action)
         next_state = self._history.new_state(next_state)
         return next_state, reward, is_terminal, info
+
+    def retrieve_histories(self, state_ids, next_state_ids=None):
+        return self._history.retrieve_histories(state_ids, next_state_ids)
 
 
 def create_dqn_with_history(state_dim, environment, history_length, replay_memory_type, buffer_size, mini_batch_size,
@@ -158,11 +188,11 @@ def create_dqn_with_history(state_dim, environment, history_length, replay_memor
     :return: (DQN, EnvironmentWithHistory)
     """
     history_manager = HistoryStateManager(history_length, buffer_size, state_dim, file_path)
+    environment_with_history = EnvironmentWithHistory(environment, history_manager)
     return dqn.DQN(experience_replay_memory=history_manager.create_replay_memory(mini_batch_size, replay_memory_type),
-                   state_preprocessor=history_manager.retrieve_histories,
+                   state_preprocessor=environment_with_history.retrieve_histories,
                    state_dim=[history_length] + state_dim,
-                   *args, **kwargs), \
-           EnvironmentWithHistory(environment, history_manager)
+                   *args, **kwargs), environment_with_history
 
 
 if __name__ == '__main__':

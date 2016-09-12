@@ -4,6 +4,7 @@ import tensorflow as tf
 import util.ring_buffer
 import util.tensor
 import algorithms.temporal_difference as td
+import pickle
 
 Statistics = collections.namedtuple('Statistics', ['mean_q', 'epsilon'])
 
@@ -33,6 +34,25 @@ class UniformExperienceReplayMemory:
         self._buffer = util.ring_buffer.RingBufferCollection(buffer_size, [self._state_dim, 1, self._state_dim, 1, 1],
                                                              *args, **kwargs)
         self._mini_batch_size = mini_batch_size
+
+    @staticmethod
+    def _save_path(dir_path, name):
+        return '%s/replay_memory_%s' % (dir_path, name)
+
+    def save(self, dir_path, name):
+        with open(self._save_path(dir_path, name), 'wb') as f:
+            pickle.dump([self._state_dim, self._mini_batch_size], f)
+        self._buffer.save(dir_path, name)
+
+    @classmethod
+    def load(cls, dir_path, name):
+        with open(cls._save_path(dir_path, name), 'rb') as f:
+            [state_dim, mini_batch_size] = pickle.load(f)
+        uniform_experience_replay_memory = cls.__new__(cls)
+        uniform_experience_replay_memory._state_dim = state_dim
+        uniform_experience_replay_memory._mini_batch_size = mini_batch_size
+        uniform_experience_replay_memory._buffer = util.ring_buffer.RingBufferCollection.load(dir_path, name)
+        return uniform_experience_replay_memory
 
     def add_sample(self, state, action, next_state, reward, is_terminal):
         """
@@ -66,6 +86,10 @@ class UniformExperienceReplayMemory:
         return self._buffer.size
 
 
+def no_preprocessor(x, y=None):
+    return x if y is None else (x, y)
+
+
 class DQN:
     """
     DQN algorithm ([Mnih et al., 2015]). 1-step Q-learning with target network & replay memory.
@@ -73,7 +97,7 @@ class DQN:
     def __init__(self, network_builder, state_dim, num_actions, optimizer, discount_factor, experience_replay_memory,
                  exploration, update_interval=1, freeze_interval=1, loss_clip_threshold=None, loss_clip_mode='linear',
                  td_rule='q-learning', create_summaries=False, minimum_memory_size=0,
-                 state_preprocessor=lambda x, y=None: x if y is None else (x, y),
+                 state_preprocessor=no_preprocessor,
                  global_step=tf.get_variable("dqn_step", shape=[], dtype=tf.int32,
                                              initializer=tf.constant_initializer(0), trainable=False)):
         """
@@ -119,16 +143,31 @@ class DQN:
         :param global_step:
             Step counter. Uses tf variable 'dqn_step' by default
         """
+        # self._parameters = {'network_builder': network_builder,
+        #                     'state_dim': state_dim,
+        #                     'num_actions': num_actions,
+        #                     'discount_factor': discount_factor,
+        #                     'experience_replay_memory': experience_replay_memory,
+        #                     'exploration': exploration,
+        #                     'update_interval': update_interval,
+        #                     'freeze_interval': freeze_interval,
+        #                     'loss_clip_threshold': loss_clip_threshold,
+        #                     'loss_clip_mode': loss_clip_mode,
+        #                     'td_rule': td_rule,
+        #                     'create_summaries': create_summaries,
+        #                     'minimum_memory_size': minimum_memory_size,
+        #                     'state_preprocessor': state_preprocessor,
+        #                     'global_step_name':  global_step.name}
+        # Constant parameters
         self._dqn_step = global_step
         self._num_actions = num_actions
-        self._experience_replay_memory = experience_replay_memory
         self._freeze_interval = freeze_interval
         self._update_interval = update_interval
         self._minimum_memory_size = minimum_memory_size
         self._preprocess_states = state_preprocessor
         self._exploration = exploration
-        self._samples_since_update = 0
 
+        # TF variables
         self._state = tf.placeholder(tf.float32, shape=[None] + state_dim, name="state")
         self._next_state = tf.placeholder(tf.float32, shape=[None] + state_dim, name="next_state")
         self._action = tf.placeholder(tf.int64, shape=[None], name="action")
@@ -143,7 +182,24 @@ class DQN:
             target_factor=self._target_q_factor)
         self._update_op = optimizer.apply_gradients(self._td_learner.td_gradient)
 
+        # Python variables
         self._last_batch_feed_dict = None
+        self._samples_since_update = 0
+        self._experience_replay_memory = experience_replay_memory
+
+    @staticmethod
+    def _save_path(dir_path, name):
+        return '%s/dqn_%s' % (dir_path, name)
+
+    def save(self, dir_path, name):
+        with open(self._save_path(dir_path, name), 'wb') as f:
+            pickle.dump(self._samples_since_update, f)
+        self._experience_replay_memory.save(dir_path, name)
+
+    def load(self, dir_path, name, experience_memory_type=UniformExperienceReplayMemory):
+        with open(self._save_path(dir_path, name), 'rb') as f:
+            self._samples_since_update = pickle.load(f)
+        self._experience_replay_memory = experience_memory_type.load(dir_path, name)
 
     def add_summaries(self, summary_writer, episode):
         """
