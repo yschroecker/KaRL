@@ -98,7 +98,7 @@ class Async:
         return self._async_instances[instance_id].get_action(self._main_instance, state)
 
 
-class A3C(AsyncAlgorithm, pg.AdvantageActorCriticBase):
+class A3C(pg.AdvantageActorCriticBase, AsyncAlgorithm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

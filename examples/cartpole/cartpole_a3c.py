@@ -10,7 +10,7 @@ import threading
 state_dim = [4]
 num_actions = 2
 discount_factor = 1
-num_instances = 1
+num_instances = 10
 
 
 def build_value_network(state, reuse):
@@ -38,7 +38,7 @@ def build_policy_network(state):
 def build_algorithm():
     actor_optimizer = tf.train.RMSPropOptimizer(1e-1/num_instances, decay=0.8, epsilon=0.01)
     critic_optimizer = tf.train.RMSPropOptimizer(1e-3, decay=0.995, epsilon=0.01)
-    policy = pg.DiscretePolicy(state_dim, num_actions, build_policy_network, actor_optimizer)
+    policy = pg.DiscretePolicy(state_dim, num_actions, build_policy_network, actor_optimizer, suffix='')
     return async.A3C(policy=policy, value_network_builder=build_value_network,
                      state_dim=state_dim, discount_factor=discount_factor,
                      steps_per_update=1, td_rule='1-step',

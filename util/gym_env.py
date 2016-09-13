@@ -26,14 +26,14 @@ def main_loop(env, learner, num_timesteps, num_iterations=10000, enable_monitor=
                 env.render()
             action = learner.get_action(state)
             next_state, reward, is_terminal, _ = env.step(action)
-            learner.update(state, action, next_state, reward, is_terminal)
+            update_result = learner.update(state, action, next_state, reward, is_terminal)
             cumulative_reward += reward
             if is_terminal:
                 break
             state = next_state
         last_100.append(cumulative_reward)
         last_100_mean = np.mean(last_100)
-        trange.set_description("Episode %d: %f" % (episode, last_100_mean))
+        trange.set_description("Episode %d: %f - %r" % (episode, last_100_mean, update_result))
         if len(last_100) == 100 and last_100_mean > 195:
             break
         if summary_frequency is not None and episode % summary_frequency == summary_frequency - 1:

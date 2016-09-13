@@ -96,7 +96,7 @@ class DQN:
     """
     def __init__(self, network_builder, state_dim, num_actions, optimizer, discount_factor, experience_replay_memory,
                  exploration, update_interval=1, freeze_interval=1, loss_clip_threshold=None, loss_clip_mode='linear',
-                 td_rule='q-learning', create_summaries=False, minimum_memory_size=0,
+                 td_rule='q-learning', create_summaries=True, minimum_memory_size=0,
                  state_preprocessor=no_preprocessor,
                  global_step=tf.get_variable("dqn_step", shape=[], dtype=tf.int32,
                                              initializer=tf.constant_initializer(0), trainable=False)):
