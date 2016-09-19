@@ -91,9 +91,20 @@ class AdvantageActorCriticBase:
                                                          next_state=self._next_state, target_factor=self._target_factor)
 
         self._advantages = self._reward + discount_factor * self._td_learner.next_v - self._td_learner.v
-        self._actor_gradients = actor_optimizer.compute_gradients(tf.reduce_mean(
-            -policy.log(self._state, self._action, **policy_call_arguments) * self._advantages),
-            var_list=policy.variables)
+        use_natural = True
+        if use_natural:
+            log_policy = lambda state, action: policy.log(state, action, **policy_call_arguments)
+            log_policy_gradient = util.tensor.GradientVector(
+                util.tensor.vector_gradient(log_policy, [self._state, self._action],
+                                            steps_per_update, actor_optimizer), True)
+            features = log_policy_gradient.flattened_gradient
+            q_weights = tf.squeeze(util.tensor.least_squares(features, self._advantages, method='matrix_solve',
+                                                             regularize=0.001))
+            self._actor_gradients = log_policy_gradient.new(-q_weights[:log_policy_gradient.flattened_gradient.get_shape()[0].value], False).reshaped_gradient
+        else:
+            self._actor_gradients = actor_optimizer.compute_gradients(tf.reduce_mean(
+                -policy.log(self._state, self._action, **policy_call_arguments) * self._advantages),
+                var_list=policy.variables)
         self._critic_gradients = self._td_learner.td_gradient
         self._actor_optimizer = actor_optimizer
         self._critic_optimizer = critic_optimizer

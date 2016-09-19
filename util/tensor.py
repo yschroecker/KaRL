@@ -1,4 +1,6 @@
 import tensorflow as tf
+import collections
+import numpy as np
 
 
 def index(tensor, index_tensor):
@@ -67,17 +69,22 @@ class GradientWrapper:
 class GradientVector:
     _VariableDescriptor = collections.namedtuple('_VariableDescriptor', ['range', 'var'])
 
-    def __init__(self, gradient):
+    def __init__(self, gradient, batch=False):
         self._gradient = gradient
+        self._batch = batch
 
         flattened_gradient = []
         self._descriptors = []
         current_index = 0
         for grad, var in gradient:
-            dim = np.prod(var.get_shape()).value
-            flattened_gradient.append(tf.reshape(grad, shape=[-1]))
-            self._descriptors.append(self._VariableDescriptor((current_index, current_index + dim), var))
-            current_index += dim
+            if grad is not None:
+                dim = np.prod(var.get_shape()).value
+                if batch:
+                    flattened_gradient.append(tf.reshape(grad, shape=[-1, dim]))
+                else:
+                    flattened_gradient.append(tf.reshape(grad, shape=[-1]))
+                self._descriptors.append(self._VariableDescriptor((current_index, current_index + dim), var))
+                current_index += dim
 
         self.flattened_gradient = tf.concat(0, flattened_gradient)
 
@@ -85,15 +92,21 @@ class GradientVector:
     def reshaped_gradient(self):
         gradient = []
         for variable_descriptor in self._descriptors:
-            variable_gradient = self.flattened_gradient[variable_descriptor.range[0]:variable_descriptor.range[1]]
-            variable_gradient = tf.reshape(variable_gradient, shape=variable_descriptor.var.get_shape())
+            if self._batch:
+                variable_gradient = self.flattened_gradient[:, variable_descriptor.range[0]:variable_descriptor.range[1]]
+                variable_gradient = tf.reshape(variable_gradient, shape=[None] + variable_descriptor.var.get_shape())
+            else:
+                variable_gradient = self.flattened_gradient[variable_descriptor.range[0]:variable_descriptor.range[1]]
+                variable_gradient = tf.reshape(variable_gradient, shape=variable_descriptor.var.get_shape())
             gradient.append((variable_gradient, variable_descriptor.var))
         return gradient
 
-    def new(self, flat_gradient):
+    def new(self, flat_gradient, batch):
+        batch = self._batch if batch is None else batch
         new_gradient = type(self).__new__(type(self))
         new_gradient.flattened_gradient = flat_gradient
         new_gradient._descriptors = self._descriptors
+        new_gradient._batch = batch
         return new_gradient
 
 
@@ -112,6 +125,17 @@ def copy_parameters(source_scope, target_scope):
             ops.append(tf.get_variable(variable.name[parent_scope_name_length + len(source_scope) + 1:].
                                        split(':', 1)[0]).assign(variable))
     return ops
+
+
+def vector_gradient(f, inputs, max_dim, optimizer):
+    inputs = [tf.reshape(input, [-1, 1]) if len(input.get_shape()) == 1 else input for input in inputs ]
+    input_padded = [tf.pad(input, [[0, max_dim-tf.shape(input)[0]], [0, 0]]) for input in inputs]
+    y = f(*input_padded)
+    grad = []
+    for i in range(max_dim):
+        grad.append(optimizer.compute_gradients(tf.gather(tf.reshape(y, [max_dim, -1]), i)))
+
+    return [(None if grad_0 is None else tf.gather(tf.pack([grad[j][i][0] for j in range(max_dim)]), tf.range(tf.shape(inputs[0])[0])), var) for i, (grad_0, var) in enumerate(grad[0])]
 
 
 def least_squares(X, y, method='svd', regularize=0):

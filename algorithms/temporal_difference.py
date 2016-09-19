@@ -13,6 +13,7 @@ class TemporalDifferenceLearner:
         if loss_clip_threshold is None:
             self.td_loss = tf.reduce_mean(td_error ** 2)
         elif loss_clip_mode == 'linear':
+            td_error = tf.abs(td_error)
             self.td_loss = tf.reduce_mean(tf.minimum(td_error, loss_clip_threshold) ** 2 +
                                           tf.maximum(td_error - loss_clip_threshold, 0))
         elif loss_clip_mode == 'absolute':
