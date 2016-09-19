@@ -65,7 +65,7 @@ class DiscretePolicy:
 class AdvantageActorCriticBase:
     def __init__(self, state_dim, policy, value_network_builder, actor_optimizer, critic_optimizer,
                  discount_factor, loss_clip_threshold=1, loss_clip_mode='linear', create_summaries=True,
-                 td_rule='deepmind-n-step',
+                 td_rule='deepmind-n-step', natural_gradient=False,
                  global_step=tf.get_variable("ac_step", shape=[], dtype=tf.int32,
                                              initializer=tf.constant_initializer(0), trainable=False),
                  steps_per_update=30, policy_call_arguments={}):
@@ -91,8 +91,7 @@ class AdvantageActorCriticBase:
                                                          next_state=self._next_state, target_factor=self._target_factor)
 
         self._advantages = self._reward + discount_factor * self._td_learner.next_v - self._td_learner.v
-        use_natural = True
-        if use_natural:
+        if natural_gradient:
             log_policy = lambda state, action: policy.log(state, action, **policy_call_arguments)
             log_policy_gradient = util.tensor.GradientVector(
                 util.tensor.vector_gradient(log_policy, [self._state, self._action],

@@ -48,7 +48,7 @@ if __name__ == '__main__':
             policy = pg.DiscretePolicy(state_dim, num_actions, build_policy_network, actor_optimizer)
             learner = pg.AdvantageActorCritic(policy=policy, value_network_builder=build_value_network,
                                               state_dim=state_dim, discount_factor=discount_factor,
-                                              loss_clip_threshold=None,
+                                              loss_clip_threshold=None, natural_gradient=False,
                                               steps_per_update=1, td_rule='1-step',
                                               actor_optimizer=actor_optimizer, critic_optimizer=critic_optimizer)
 
