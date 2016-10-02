@@ -1,10 +1,12 @@
-import tensorflow as tf
-import numpy as np
-import util.tensor
-import util.debug
-import algorithms.temporal_difference as td
-import uuid
 import pickle
+import uuid
+
+import numpy as np
+import tensorflow as tf
+
+import algorithms.tensorflow_backend.temporal_difference as td
+import util.debug
+import util.tensor
 
 
 class DiscretePolicy:
@@ -149,7 +151,7 @@ class AdvantageActorCritic(AdvantageActorCriticBase):
 
             self._actor_update.run(feed_dict=feed_dict)
             self._critic_update.run(feed_dict=feed_dict)
-            tf.get_default_session().run(self._td_learner.copy_weights_ops, feed_dict=feed_dict)
+            tf.get_default_session().run(self._td_learner._copy_weights_ops, feed_dict=feed_dict)
 
             self._steps_since_update = 0
             self._empty_observervations()

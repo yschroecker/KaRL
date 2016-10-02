@@ -1,10 +1,10 @@
 import collections
-import numpy as np
-import tensorflow as tf
-import util.ring_buffer
-import util.tensor
-import algorithms.temporal_difference as td
 import pickle
+
+import numpy as np
+
+import algorithms.theano_backend.temporal_difference as td
+import util.ring_buffer
 
 Statistics = collections.namedtuple('Statistics', ['mean_q', 'epsilon'])
 
@@ -97,9 +97,7 @@ class DQN:
     def __init__(self, network_builder, state_dim, num_actions, optimizer, discount_factor, experience_replay_memory,
                  exploration, update_interval=1, freeze_interval=1, loss_clip_threshold=None, loss_clip_mode='linear',
                  td_rule='q-learning', create_summaries=True, minimum_memory_size=0,
-                 state_preprocessor=no_preprocessor,
-                 global_step=tf.get_variable("dqn_step", shape=[], dtype=tf.int32,
-                                             initializer=tf.constant_initializer(0), trainable=False)):
+                 state_preprocessor=no_preprocessor):
         """
         :param network_builder: (state, reuse) -> Q
             Function returning a tensor representing the Q function. May be called multiple times with or without
@@ -140,26 +138,8 @@ class DQN:
             Number of samples to be observed before starting to update the networks.
         :param state_preprocessor: (states, next_states=None) -> (states[, next_states])
             Transformation of states obtained by ReplayMemory. No transformation by default.
-        :param global_step:
-            Step counter. Uses tf variable 'dqn_step' by default
         """
-        # self._parameters = {'network_builder': network_builder,
-        #                     'state_dim': state_dim,
-        #                     'num_actions': num_actions,
-        #                     'discount_factor': discount_factor,
-        #                     'experience_replay_memory': experience_replay_memory,
-        #                     'exploration': exploration,
-        #                     'update_interval': update_interval,
-        #                     'freeze_interval': freeze_interval,
-        #                     'loss_clip_threshold': loss_clip_threshold,
-        #                     'loss_clip_mode': loss_clip_mode,
-        #                     'td_rule': td_rule,
-        #                     'create_summaries': create_summaries,
-        #                     'minimum_memory_size': minimum_memory_size,
-        #                     'state_preprocessor': state_preprocessor,
-        #                     'global_step_name':  global_step.name}
-        # Constant parameters
-        self._dqn_step = global_step
+        self._update_counter = 0
         self._num_actions = num_actions
         self._freeze_interval = freeze_interval
         self._update_interval = update_interval
@@ -167,22 +147,11 @@ class DQN:
         self._preprocess_states = state_preprocessor
         self._exploration = exploration
 
-        # TF variables
-        self._state = tf.placeholder(tf.float32, shape=[None] + state_dim, name="state")
-        self._next_state = tf.placeholder(tf.float32, shape=[None] + state_dim, name="next_state")
-        self._action = tf.placeholder(tf.int64, shape=[None], name="action")
-        self._reward = tf.placeholder(tf.float32, shape=[None], name="reward")
-        self._target_q_factor = tf.placeholder(tf.float32, shape=[None])  # 0 for terminal states.
-
         self._td_learner = td.TemporalDifferenceLearnerQ(
-            network_builder=network_builder, optimizer=optimizer, num_actions=num_actions,
+            network_builder=network_builder, optimizer=optimizer, state_dim=state_dim, num_actions=num_actions,
             discount_factor=discount_factor, td_rule=td_rule, loss_clip_threshold=loss_clip_threshold,
-            loss_clip_mode=loss_clip_mode, create_summaries=create_summaries, global_step=global_step,
-            state=self._state, action=self._action, reward=self._reward, next_state=self._next_state,
-            target_factor=self._target_q_factor)
-        self._update_op = optimizer.apply_gradients(self._td_learner.td_gradient)
+            loss_clip_mode=loss_clip_mode, create_summaries=create_summaries)
 
-        # Python variables
         self._last_batch_feed_dict = None
         self._samples_since_update = 0
         self._experience_replay_memory = experience_replay_memory
@@ -207,9 +176,7 @@ class DQN:
         :param episode:
             Int denoting the current episode
         """
-        if self._last_batch_feed_dict is not None:
-            summary_writer.add_summary(tf.get_default_session().run(self._td_learner.summary_op,
-                                                                    feed_dict=self._last_batch_feed_dict), episode)
+        self._td_learner.add_summaries(summary_writer, episode)
 
     def update(self, state, action, next_state, reward, is_terminal):
         """
@@ -234,12 +201,9 @@ class DQN:
         if self._samples_since_update >= self._update_interval and \
                         self._experience_replay_memory.size >= self._minimum_memory_size:
             self._samples_since_update = 0
+            self._update_counter += 1
             states, actions, next_states, rewards, target_q_factor = self._experience_replay_memory.get_mini_batch()
             transformed_states, transformed_next_states = self._preprocess_states(states, next_states)
-            feed_dict = {self._state: transformed_states, self._action: actions,
-                         self._next_state: transformed_next_states, self._reward: rewards,
-                         self._target_q_factor: target_q_factor}
-            self._last_batch_feed_dict = feed_dict
 
             # Profiling
             # import sys
@@ -253,11 +217,13 @@ class DQN:
             #     f.write(trace.generate_chrome_trace_format())
             # sys.exit(0)
 
-            mini_batch_q, td_loss, _ = tf.get_default_session().run([self._td_learner.q, self._td_learner.td_loss,
-                                                                     self._update_op], feed_dict=feed_dict)
+            mini_batch_q, td_loss = self._td_learner.bellman_operator_update(transformed_states, actions, rewards,
+                                                                             transformed_next_states, target_q_factor)
 
-            if self._dqn_step.eval() % self._freeze_interval == 0:
-                tf.get_default_session().run(self._td_learner.copy_weights_ops, feed_dict=feed_dict)
+            if self._update_counter >= self._freeze_interval:
+                self._update_counter = 0
+                self._td_learner.fixpoint_update(transformed_states, actions, rewards, transformed_next_states,
+                                                 target_q_factor)
 
             return Statistics(np.mean(mini_batch_q), self._exploration.epsilon)
         return Statistics(0, self._exploration.epsilon)
@@ -266,7 +232,7 @@ class DQN:
         """
         Returns the greedy action for evaluation
         """
-        return self._td_learner.max_action.eval(feed_dict={self._state: self._preprocess_states([state])})
+        return self._td_learner.max_action(self._preprocess_states([state]))[0]
 
     def get_action(self, state):
         """
