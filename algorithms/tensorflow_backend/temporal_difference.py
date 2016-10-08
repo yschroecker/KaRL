@@ -77,7 +77,7 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
         super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, td_error)
 
     def max_action(self, states):
-        return self._max_action.eval(feed_dict={self.state: states})
+        return [self._max_action.eval(feed_dict={self.state: states})]
 
     def _update_feed_dict(self, states, actions, rewards, next_states, target_factors):
         feed_dict = {self.state: states, self.action: actions,
@@ -91,9 +91,8 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
                                                      feed_dict=self._feed_dict)
         return q, td_loss
 
-    def fixpoint_update(self, states, actions, rewards, next_states, target_factors):
-        self._update_feed_dict(states, actions, rewards, next_states, target_factors)
-        tf.get_default_session().run(self._copy_weights_ops, feed_dict=self._feed_dict)
+    def fixpoint_update(self):
+        tf.get_default_session().run(self._copy_weights_ops)
 
     def add_summaries(self, summary_writer, episode):
         if self._feed_dict is not None:

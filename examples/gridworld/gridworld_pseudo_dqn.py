@@ -8,7 +8,8 @@ import functools
 
 def build_network():
     l_in = lasagne.layers.InputLayer((None, gridworld.width * gridworld.height))
-    l_out = lasagne.layers.DenseLayer(l_in, gridworld.num_actions, lasagne.init.Constant(10.), b=None)
+    l_out = lasagne.layers.DenseLayer(l_in, gridworld.num_actions, lasagne.init.Constant(10.), b=None,
+                                      nonlinearity=lasagne.nonlinearities.linear)
     def build_instance(state):
         state = T.extra_ops.to_one_hot(T.cast(state, 'int32'), gridworld.width * gridworld.height)
         return lasagne.layers.get_output(l_out, state)

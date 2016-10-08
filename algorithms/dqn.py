@@ -222,8 +222,7 @@ class DQN:
 
             if self._update_counter >= self._freeze_interval:
                 self._update_counter = 0
-                self._td_learner.fixpoint_update(transformed_states, actions, rewards, transformed_next_states,
-                                                 target_q_factor)
+                self._td_learner.fixpoint_update()
 
             return Statistics(np.mean(mini_batch_q), self._exploration.epsilon)
         return Statistics(0, self._exploration.epsilon)

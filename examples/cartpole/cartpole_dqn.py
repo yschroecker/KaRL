@@ -10,6 +10,7 @@ import theano
 import theano.tensor as T
 import lasagne
 
+
 history_length = 1
 state_dim = [4]
 num_actions = 2
@@ -25,9 +26,11 @@ create_summaries = True
 
 def build_network():
     l_in = lasagne.layers.InputLayer((None, 4 * history_length))
-    l_hidden = lasagne.layers.DenseLayer(l_in, 80, nonlinearity=lasagne.nonlinearities.rectify)
-    l_out = lasagne.layers.DenseLayer(l_hidden, num_actions)
-    return functools.partial(lasagne.layers.get_output, l_out), lasagne.layers.get_all_params(l_out, trainable=True)
+    l_hidden = lasagne.layers.DenseLayer(l_in, 80, nonlinearity=lasagne.nonlinearities.rectify,
+                                         W=lasagne.init.HeUniform(gain='relu'))
+    l_out = lasagne.layers.DenseLayer(l_hidden, num_actions, nonlinearity=lasagne.nonlinearities.linear,
+                                      W=lasagne.init.HeUniform())
+    return functools.partial(lasagne.layers.get_output, l_out), lasagne.layers.get_all_params(l_out)
 
 if __name__ == '__main__':
         if len(sys.argv) < 2:
