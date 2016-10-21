@@ -42,6 +42,7 @@ class RingBuffer:
             saved_data = file.create_dataset(name, data=self._ringbuffer)
             saved_data.attrs['size'] = self.size
             saved_data.attrs['head'] = self._head
+            saved_data.attrs['use_disk'] = self._use_disk
             saved_data.attrs['elements_inserted'] = self._elements_inserted
 
     @classmethod
@@ -53,6 +54,7 @@ class RingBuffer:
             ring_buffer.size = dataset.attrs['size']
             ring_buffer._head = dataset.attrs['head']
             ring_buffer._elements_inserted = dataset.attrs['elements_inserted']
+            ring_buffer._use_disk = dataset.attrs['use_disk']
             return ring_buffer
 
     def __getitem__(self, item):

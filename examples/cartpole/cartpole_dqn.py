@@ -1,5 +1,5 @@
 import collections
-import gym
+import gym.envs.classic_control
 import sys
 import os
 import numpy as np
@@ -9,6 +9,7 @@ import functools
 import theano
 import theano.tensor as T
 import lasagne
+import util.gym_env
 
 
 history_length = 1
@@ -24,6 +25,7 @@ mini_batch_size = 500
 td_rule = 'q-learning'
 create_summaries = True
 
+
 def build_network():
     l_in = lasagne.layers.InputLayer((None, 4 * history_length))
     l_hidden = lasagne.layers.DenseLayer(l_in, 80, nonlinearity=lasagne.nonlinearities.rectify,
@@ -32,12 +34,20 @@ def build_network():
                                       W=lasagne.init.HeUniform())
     return functools.partial(lasagne.layers.get_output, l_out), lasagne.layers.get_all_params(l_out)
 
+
+class Cartpole(gym.envs.classic_control.cartpole.CartPoleEnv):
+    def step(self, action):
+        state, reward, is_terminal, info = super().step(action)
+        if is_terminal:
+            reward = -100
+        return state, reward, is_terminal, info
+
 if __name__ == '__main__':
         if len(sys.argv) < 2:
             print("cartpole_dqn.py takes one argument: the output directory of openai gym monitor data")
             sys.exit(1)
 
-        env = gym.make("CartPole-v0")
+        env = Cartpole()
         #env.monitor.start(sys.argv[1] + '/monitor', force=True)
 
         if history_length > 1:
@@ -71,24 +81,8 @@ if __name__ == '__main__':
                 td_rule=td_rule,
                 create_summaries=create_summaries)
 
-        last_100 = collections.deque(maxlen=100)
-        for episode in range(10000):
-            state = env.reset()
-            cumulative_reward = 0
-            for t in range(200):
-                action = learner.get_action(state)
-                next_state, reward, is_terminal, _ = env.step(action)
-                if is_terminal:
-                    statistics = learner.update(state, action, next_state, -100, is_terminal)
-                    break
-                else:
-                    statistics = learner.update(state, action, next_state, reward, is_terminal)
-
-                    cumulative_reward += reward
-                    state = next_state
-            last_100.append(cumulative_reward)
-            last_100_mean = np.mean(last_100)
-            print("Episode %d: %f(%f)" % (episode, last_100_mean, statistics.epsilon))
-            if len(last_100) == 100 and last_100_mean > 195:
-                break
+        util.gym_env.main_loop(env, learner, restore=False,
+                               num_time_steps=200,
+                               reward_threshold=195,
+                               save_model_directory='/tmp/cartpole')  # TODO: remove backups for cartpole
 

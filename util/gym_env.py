@@ -1,27 +1,47 @@
 import sys
-import tensorflow as tf
 import collections
 import numpy as np
 import tqdm
+import glob
+import os
+import re
+import shutil
 
 
-def main_loop(env, learner, num_timesteps, num_iterations=10000, enable_monitor=False, summary_frequency=100,
-              do_render=False):
+def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold=None, num_iterations=10000,
+              enable_monitor=False,
+              summary_frequency=100, do_render=False, save_model_directory=None, save_model_frequency=10,
+              save_model_horizon=10, restore=False):
     if len(sys.argv) < 2:
         print("%s takes one argument: the output directory of monitor and summaries data" % sys.argv[0])
         sys.exit(1)
 
     summary_dir = sys.argv[1] + '/summaries'
-    summary_writer = tf.train.SummaryWriter(summary_dir, tf.get_default_session().graph)
     if enable_monitor:
         env.monitor.start(sys.argv[1] + '/monitor', force=True)
 
-    last_100 = collections.deque(maxlen=100)
-    trange = tqdm.trange(num_iterations)
+    reward_window = collections.deque(maxlen=reward_horizon)
+    if restore:
+        assert save_model_directory is not None, "No directory specified for restore operation"
+        backups = glob.glob('%s/__backup_episode_*' % save_model_directory)
+        episodes = [int(re.findall(r'\d+', backup)[-1]) for backup in backups]
+        start_iteration = np.max(episodes)
+        learner.load(save_model_directory, "backup_%d" % ((start_iteration//save_model_frequency) % save_model_horizon))
+    else:
+        start_iteration = 0
+
+    if save_model_directory is not None:
+        if start_iteration == 0 and os.path.exists(save_model_directory):
+            shutil.rmtree(save_model_directory)
+        if not os.path.exists(save_model_directory):
+            os.makedirs(save_model_directory)
+
+
+    trange = tqdm.trange(start_iteration, num_iterations)
     for episode in trange:
         state = env.reset()
         cumulative_reward = 0
-        for t in range(num_timesteps):
+        for t in range(num_time_steps):
             if do_render:
                 env.render()
             action = learner.get_action(state)
@@ -31,10 +51,15 @@ def main_loop(env, learner, num_timesteps, num_iterations=10000, enable_monitor=
             if is_terminal:
                 break
             state = next_state
-        last_100.append(cumulative_reward)
-        last_100_mean = np.mean(last_100)
-        trange.set_description("Episode %d: %f - %r" % (episode, last_100_mean, update_result))
-        if len(last_100) == 100 and last_100_mean > 195:
+        reward_window.append(cumulative_reward)
+        reward_sma = np.mean(reward_window)
+        trange.set_description("Episode %d: %f - %r" % (episode, reward_sma, update_result))
+        if reward_threshold is not None and len(reward_window) == 100 and reward_window > reward_threshold:
             break
-        if summary_frequency is not None and episode % summary_frequency == summary_frequency - 1:
-            learner.add_summaries(summary_writer, episode)
+
+        if save_model_directory is not None and episode != start_iteration and episode % save_model_frequency == 0:
+            open('%s/__backup_episode_%d' % (save_model_directory, episode), 'w').close()
+            learner.save(save_model_directory, "backup_%d" % ((episode//save_model_frequency) % save_model_horizon))
+
+        # if summary_frequency is not None and episode % summary_frequency == summary_frequency - 1:
+        #     learner.add_summaries(summary_writer, episode)

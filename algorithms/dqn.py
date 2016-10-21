@@ -161,13 +161,17 @@ class DQN:
         return '%s/dqn_%s' % (dir_path, name)
 
     def save(self, dir_path, name):
-        with open(self._save_path(dir_path, name), 'wb') as f:
+        with open(self._save_path(dir_path, name + "_exp"), 'wb') as f:
             pickle.dump(self._samples_since_update, f)
+        with open(self._save_path(dir_path, name + "_net"), 'wb') as f:
+            pickle.dump(self._td_learner, f)
         self._experience_replay_memory.save(dir_path, name)
 
     def load(self, dir_path, name, experience_memory_type=UniformExperienceReplayMemory):
-        with open(self._save_path(dir_path, name), 'rb') as f:
+        with open(self._save_path(dir_path, name + "_exp"), 'rb') as f:
             self._samples_since_update = pickle.load(f)
+        with open(self._save_path(dir_path, name + "_net"), 'rb') as f:
+            self._td_learner = pickle.load(f)
         self._experience_replay_memory = experience_memory_type.load(dir_path, name)
 
     def add_summaries(self, summary_writer, episode):
