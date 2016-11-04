@@ -57,7 +57,7 @@ def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold
         reward_window.append(cumulative_reward)
         reward_sma = np.mean(reward_window)
         trange.set_description("Episode %d: %f - %r" % (episode, reward_sma, update_result))
-        if reward_threshold is not None and len(reward_window) == 100 and reward_window > reward_threshold:
+        if reward_threshold is not None and len(reward_window) == 100 and np.mean(reward_window) > reward_threshold:
             break
 
         if save_model_directory is not None and episode != start_iteration and episode % save_model_frequency == 0:
