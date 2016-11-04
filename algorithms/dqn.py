@@ -203,7 +203,7 @@ class DQN:
 
         self._samples_since_update += 1
         if self._samples_since_update >= self._update_interval and \
-                        self._experience_replay_memory.size >= self._minimum_memory_size:
+                self._experience_replay_memory.size >= self._minimum_memory_size:
             self._samples_since_update = 0
             self._update_counter += 1
             states, actions, next_states, rewards, target_q_factor = self._experience_replay_memory.get_mini_batch()

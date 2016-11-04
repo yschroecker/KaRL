@@ -26,8 +26,9 @@ class TemporalDifferenceLearner:
 class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
     def __init__(self, network_builder, optimizer, state_dim, num_actions, discount_factor, td_rule, loss_clip_threshold,
                  loss_clip_mode, create_summaries):
-        self.state = T.fmatrix("state")
-        self.next_state = T.fmatrix("next_state")
+        state_tensor_type = T.TensorType('float32', (False,)*(len(state_dim) + 1))
+        self.state = state_tensor_type("state")
+        self.next_state = state_tensor_type("next_state")
         self.action = T.ivector("action")
         self.reward = T.fvector("reward")
         self.target_q_factor = T.fvector("target_q_factor")  # 0 for terminal states.

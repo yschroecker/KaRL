@@ -164,6 +164,9 @@ class EnvironmentWithHistory:
     def retrieve_histories(self, state_ids, next_state_ids=None):
         return self._history.retrieve_histories(state_ids, next_state_ids)
 
+    def __getattr__(self, item):
+        return getattr(self._env, item)
+
 
 def create_dqn_with_history(state_dim, environment, history_length, replay_memory_type, buffer_size, mini_batch_size,
                             file_path=None, *args, **kwargs):
