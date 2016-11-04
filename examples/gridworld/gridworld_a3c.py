@@ -1,8 +1,9 @@
 import gridworld
-import tensorflow as tf
-import algorithms.policy_gradient as pg
-import algorithms.async as async
 import numpy as np
+import tensorflow as tf
+
+import algorithms.async as async
+import algorithms.tensorflow_backend.policy_gradient as pg
 
 
 def build_policy_network(states):

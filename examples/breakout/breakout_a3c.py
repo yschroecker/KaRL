@@ -1,16 +1,16 @@
-import sys
-import cv2
-import logging
-import gym
-import tqdm
-import tflearn
-import tensorflow as tf
-import numpy as np
-import algorithms.async as async
-import algorithms.policy_gradient as pg
-import algorithms.history as history
-import functools
 import collections
+import logging
+import sys
+
+import cv2
+import gym
+import numpy as np
+import tensorflow as tf
+import tflearn
+import tqdm
+
+import algorithms.async as async
+import algorithms.tensorflow_backend.policy_gradient as pg
 
 
 def build_value_network(num_actions, state, reuse):

@@ -1,8 +1,10 @@
-import tensorflow as tf
-import util.tensor
-import util.debug
-import algorithms.policy_gradient as pg
 import abc
+
+import tensorflow as tf
+
+import algorithms.tensorflow_backend.policy_gradient as pg
+import util.debug
+import util.tensor
 
 
 class AsyncAlgorithm:

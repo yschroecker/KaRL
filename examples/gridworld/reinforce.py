@@ -1,6 +1,7 @@
 import gridworld
 import tensorflow as tf
-import algorithms.policy_gradient as pg
+
+import algorithms.tensorflow_backend.policy_gradient as pg
 
 
 def build_network(states):

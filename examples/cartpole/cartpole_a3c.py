@@ -1,11 +1,13 @@
-import tensorflow as tf
-import numpy as np
-import gym
-import sys
 import collections
-import algorithms.policy_gradient as pg
-import algorithms.async as async
+import sys
 import threading
+
+import gym
+import numpy as np
+import tensorflow as tf
+
+import algorithms.async as async
+import algorithms.tensorflow_backend.policy_gradient as pg
 
 state_dim = [4]
 num_actions = 2

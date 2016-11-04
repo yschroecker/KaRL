@@ -1,9 +1,11 @@
-import tensorflow as tf
-import numpy as np
-import gym
-import sys
 import collections
-import algorithms.policy_gradient as pg
+import sys
+
+import gym
+import numpy as np
+import tensorflow as tf
+
+import algorithms.tensorflow_backend.policy_gradient as pg
 
 state_dim = [4]
 num_actions = 2

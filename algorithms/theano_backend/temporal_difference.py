@@ -24,8 +24,8 @@ class TemporalDifferenceLearner:
 
 
 class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
-    def __init__(self, network_builder, optimizer, state_dim, num_actions, discount_factor, td_rule, loss_clip_threshold,
-                 loss_clip_mode, create_summaries):
+    def __init__(self, network_builder, optimizer, state_dim, num_actions, discount_factor, td_rule,
+                 loss_clip_threshold, loss_clip_mode, create_summaries):
         state_tensor_type = T.TensorType('float32', (False,)*(len(state_dim) + 1))
         self.state = state_tensor_type("state")
         self.next_state = state_tensor_type("next_state")
