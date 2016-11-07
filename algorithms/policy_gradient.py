@@ -53,14 +53,8 @@ class REINFORCE(EpisodicPG):
         return self._policy.sample(state)
 
 
-class SimpleActorCritic:
-    def __init__(self, policy, critic_learner, discount_factor, actor_optimizer, steps_before_update):
-        self._critic = critic_learner
-        self._advantage_estimator = pg_backend.TDVAdvantageEstimator(critic_learner, discount_factor)
-        self._actor = pg_backend.LikelihoodRatioGradient(policy, self._advantage_estimator,
-                                                         actor_optimizer)
-        self._policy = policy_backend.DiscretePolicy(policy)
-
+class SampleAccumulator:
+    def __init__(self, steps_before_update):
         self._reset_train_set()
         self._steps_before_update = steps_before_update
 
@@ -86,11 +80,29 @@ class SimpleActorCritic:
             update_next_states = np.array(self._update_next_states, dtype=np.float32)
             update_rewards = np.array(self._update_rewards, dtype=np.float32)
             update_is_terminal = np.array(self._update_is_terminal, dtype=np.float32)
+            self._reset_train_set()
+            return update_states, update_actions, update_next_states, update_rewards, update_is_terminal
+
+        return None
+
+
+class SimpleActorCritic:
+    def __init__(self, policy, critic_learner, discount_factor, actor_optimizer, steps_before_update):
+        self._critic = critic_learner
+        self._advantage_estimator = pg_backend.TDVAdvantageEstimator(critic_learner, discount_factor)
+        self._actor = pg_backend.LikelihoodRatioGradient(policy, self._advantage_estimator,
+                                                         actor_optimizer)
+        self._policy = policy_backend.DiscretePolicy(policy)
+        self._sample_accumulator = SampleAccumulator(steps_before_update)
+
+    def update(self, *args):
+        update_samples = self._sample_accumulator.update(*args)
+        if update_samples is not None:
+            update_states, update_actions, update_next_states, update_rewards, update_is_terminal = update_samples
 
             self._critic.bellman_operator_update(update_states, update_next_states, update_rewards, update_is_terminal)
             self._critic.fixpoint_update()
             self._actor.update(update_states, update_actions, update_next_states, update_rewards, update_is_terminal)
-            self._reset_train_set()
 
     def get_action(self, state):
         return self._policy.sample(state)

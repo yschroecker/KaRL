@@ -12,8 +12,8 @@ import util.gym_env
 
 state_dim = [4]
 num_actions = 2
-actor_optimizer = functools.partial(lasagne.updates.sgd, learning_rate=1e-2)
-td_optimizer = functools.partial(lasagne.updates.sgd, learning_rate=1e-4)
+actor_optimizer = functools.partial(lasagne.updates.rmsprop, learning_rate=1e-2)
+td_optimizer = functools.partial(lasagne.updates.rmsprop, learning_rate=1e-3, rho=0.995, epsilon=1e-2)
 discount_factor = 0.9
 buffer_size = 10000000
 td_rule = '1-step'
