@@ -221,8 +221,9 @@ class DQN:
             #     f.write(trace.generate_chrome_trace_format())
             # sys.exit(0)
 
-            mini_batch_q, td_loss = self._td_learner.bellman_operator_update(transformed_states, actions, rewards,
-                                                                             transformed_next_states, target_q_factor)
+            mini_batch_q, td_loss = self._td_learner.bellman_operator_update(transformed_states, actions,
+                                                                             transformed_next_states, rewards,
+                                                                             target_q_factor)
 
             if self._update_counter >= self._freeze_interval:
                 self._update_counter = 0

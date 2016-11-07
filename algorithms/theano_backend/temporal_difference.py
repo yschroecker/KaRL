@@ -1,9 +1,10 @@
 import theano
 import theano.tensor as T
 import numpy as np
+import abc
 
 
-class TemporalDifferenceLearner:
+class TemporalDifferenceLearner(metaclass=abc.ABCMeta):
     def __init__(self, optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, td_error):
         self._optimizer = optimizer
 
@@ -21,6 +22,9 @@ class TemporalDifferenceLearner:
         self.td_gradient = T.grad(self._td_loss, self._online_weights)
         self._gradient_updates = self._optimizer(self.td_gradient, self._online_weights)
         self._copy_weights = theano.function([], updates=list(zip(self._target_weights, self._online_weights)))
+
+    def fixpoint_update(self):
+        self._copy_weights()
 
 
 class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
@@ -75,12 +79,43 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
                      self.target_q_factor.name: target_factors}
         self._feed_dict = feed_dict
 
-    def bellman_operator_update(self, states, actions, rewards, next_states, target_factors):
+    def bellman_operator_update(self, states, actions, next_states, rewards, target_factors):
         self._update_feed_dict(states, actions, rewards, next_states, target_factors)
         return self._update(**self._feed_dict)
 
-    def fixpoint_update(self):
-        self._copy_weights()
-
     def add_summaries(self, summary_writer, episode):
-        assert False, "Not implemented"
+        raise NotImplementedError()
+
+    def state_action_value(self, states, actions):
+        return self._online_network(states, actions)
+
+
+class TemporalDifferenceLearnerV(TemporalDifferenceLearner):
+    def __init__(self, network_builder, optimizer, state_dim, discount_factor, td_rule,
+                 loss_clip_threshold, loss_clip_mode, create_summaries):
+        self._online_network, self._online_weights = network_builder()
+        self._target_network, self._target_weights = network_builder()
+
+        state_tensor_type = T.TensorType('float32', (False,)*(len(state_dim) + 1))
+        self.state = state_tensor_type("state")
+        self.next_state = state_tensor_type("next_state")
+        self.reward = T.fvector("reward")
+        self.target_factor = T.fvector("target_factor")
+
+        self._v_online = self._online_network(self.state)[:, 0]
+        self._next_v_target = self._target_network(self.next_state)[:, 0]
+
+        if td_rule == '1-step':
+            td_error = self.reward + discount_factor * self.target_factor * self._next_v_target - self._v_online
+        else:
+            assert False
+
+        super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, td_error)
+        self.bellman_operator_update = theano.function([self.state, self.next_state, self.reward, self.target_factor],
+                                                       updates=self._gradient_updates, allow_input_downcast=True)
+        self.fixpoint_update()
+
+    def value(self, states):
+        return self._online_network(states)[:, 0]
+
+

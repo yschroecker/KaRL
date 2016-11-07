@@ -79,14 +79,14 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
     def max_action(self, states):
         return [self._max_action.eval(feed_dict={self.state: states})]
 
-    def _update_feed_dict(self, states, actions, rewards, next_states, target_factors):
+    def _update_feed_dict(self, states, actions, next_states, rewards, target_factors):
         feed_dict = {self.state: states, self.action: actions,
                      self.next_state: next_states, self.reward: rewards,
                      self.target_q_factor: target_factors}
         self._feed_dict = feed_dict
 
-    def bellman_operator_update(self, states, actions, rewards, next_states, target_factors):
-        self._update_feed_dict(states, actions, rewards, next_states, target_factors)
+    def bellman_operator_update(self, states, actions, next_states, rewards, target_factors):
+        self._update_feed_dict(states, actions, next_states, rewards, target_factors)
         q, td_loss, _ = tf.get_default_session().run([self._q, self._td_loss, self._update_op],
                                                      feed_dict=self._feed_dict)
         return q, td_loss
