@@ -2,6 +2,7 @@ import theano
 import theano.tensor as T
 import numpy as np
 import abc
+import algorithms.theano_backend.bokehboard
 
 
 class TemporalDifferenceLearner(metaclass=abc.ABCMeta):
@@ -22,6 +23,11 @@ class TemporalDifferenceLearner(metaclass=abc.ABCMeta):
         self.td_gradient = T.grad(self._td_loss, self._online_weights)
         self._gradient_updates = self._optimizer(self.td_gradient, self._online_weights)
         self._copy_weights = theano.function([], updates=list(zip(self._target_weights, self._online_weights)))
+        # if create_summaries:
+        #     bokehboard = algorithms.theano_backend.bokehboard.BokehboardSummaryCreator()
+        #     for online_weight in self._online_weights:
+        #         bokehboard.add_tensor_variable("online_network: {}".format(online_weight.name), online_weight,
+        #                                        bokehboard.HISTOGRAM_PLOT)
 
     def fixpoint_update(self):
         self._copy_weights()

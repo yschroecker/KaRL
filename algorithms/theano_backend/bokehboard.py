@@ -56,25 +56,42 @@ class Bokehboard:
 
     def __init__(self, session_name="default", plot_frequency=50):
         self._watches = []
+        self._python_vars = {}
         self._plot_frequency = plot_frequency
         self._update_counter = 0
         self._session_name = session_name
 
         self._session = None
 
-    def add_tensor_variable(self, description, var, plot_type):
+    def _create_plot(self, description, plot_type):
         if plot_type == self.LINE_PLOT:
             plot = self._SimplePlot(description)
         elif plot_type == self.HISTOGRAM_PLOT:
             plot = self._HistogramPlot(description)
         else:
             assert False
+        return plot
+
+    def add_tensor_variable(self, description, var, plot_type):
+        plot = self._create_plot(description, plot_type)
         self._watches.append((description, var, plot))
+
+    def add_python_variable(self, description, plot_type, **kwargs):
+        plot = self._create_plot(description, plot_type)
+        for key, value in kwargs.items():
+            self._python_vars[key] = [description, value, plot]
+
+    def update_python_variable(self, **kwargs):
+        for key, value in kwargs.items():
+            self._python_vars[key][1] = value
 
     def show(self):
         doc = bokeh.plotting.curdoc()
         self._session = bokeh.client.push_session(doc, session_id=self._session_name)
-        layout = bokeh.layouts.gridplot([watch[2].plot for watch in self._watches], ncols=2)
+        plots = [watch[2].plot for watch in self._watches]
+        for key, (description, value, plot) in self._python_vars.items():
+            plots.append(plot.plot)
+        layout = bokeh.layouts.gridplot(plots, ncols=2)
         doc.add_root(layout)
         bokeh.client.show_session(self._session_name)
 
@@ -88,9 +105,22 @@ class Bokehboard:
         for desc, var, plot in self._watches:
             value = var.get_value()
             plot.add_point(self._update_counter, value)
+        for var, (desc, value, plot) in self._python_vars.items():
+            plot.add_point(self._update_counter, value)
 
     def keep_alive(self):
         self._session.loop_until_closed()
+
+
+class BokehboardSummaryCreator:
+    instance = None
+
+    def __init__(self):
+        if not self.instance:
+            self.instance = Bokehboard()
+
+    def __getattr__(self, name):
+        return getattr(self.instance, name)
 
 
 if __name__ == '__main__':
@@ -101,11 +131,13 @@ if __name__ == '__main__':
     bb.add_tensor_variable("test", var, Bokehboard.HISTOGRAM_PLOT)
     bb.add_tensor_variable("test2", var, Bokehboard.HISTOGRAM_PLOT)
     bb.add_tensor_variable("test3", var, Bokehboard.HISTOGRAM_PLOT)
+    bb.add_python_variable("test4", Bokehboard.LINE_PLOT, test4=3)
     bb.show()
     for i in range(1000):
         time.sleep(1)
         bb.update()
         var.set_value([i**k for k in np.arange(1, 3, 0.1)])
+        bb.update_python_variable(test4=i)
     # bb._session.store_objects(bb._testplot._line.data_source)
     bb.keep_alive()
 
