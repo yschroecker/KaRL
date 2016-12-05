@@ -23,14 +23,30 @@ class TemporalDifferenceLearner(metaclass=abc.ABCMeta):
         self.td_gradient = T.grad(self._td_loss, self._online_weights)
         self._gradient_updates = self._optimizer(self.td_gradient, self._online_weights)
         self._copy_weights = theano.function([], updates=list(zip(self._target_weights, self._online_weights)))
+        self._create_summaries = create_summaries
         if create_summaries:
-            bokehboard = algorithms.theano_backend.bokehboard.Bokehboard()
+            self._bokehboard = algorithms.theano_backend.bokehboard.Bokehboard()
             for online_weight in self._online_weights:
-                bokehboard.add_tensor_variable("online_network: {}".format(online_weight.name), online_weight,
-                                               bokehboard.HISTOGRAM_PLOT)
+                self._bokehboard.add_tensor_variable("online_network: {}".format(online_weight.name), online_weight,
+                                                     self._bokehboard.HISTOGRAM_PLOT)
+                name = self._gradient_name(online_weight)
+                self._bokehboard.add_python_variable(name, self._bokehboard.HISTOGRAM_PLOT,
+                                                     **{name: np.zeros_like(online_weight.get_value())})
 
     def fixpoint_update(self):
         self._copy_weights()
+
+    def bellman_operator_update(self, *args, **kwargs):
+        if self._create_summaries and self._bokehboard.ready_for_update():
+            gradient = self._update_with_get(*args, **kwargs)
+            for var, var_gradient in zip(self._online_weights, gradient):
+                name = self._gradient_name(var)
+                self._bokehboard.update_python_variable(**{name: var_gradient})
+        else:
+            self._update(*args, **kwargs)
+
+    def _gradient_name(self, online_weight):
+        return "online_network: {}_gradient".format(online_weight.name)
 
 
 class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
@@ -73,7 +89,10 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
 
         super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, td_error)
         self._update = theano.function([self.state, self.action, self.reward, self.next_state, self.target_q_factor],
-                                       [q_a, td_error], updates=self._gradient_updates, allow_input_downcast=True)
+                                       updates=self._gradient_updates, allow_input_downcast=True)
+        self._update_with_get = theano.function([self.state, self.action, self.reward, self.next_state,
+                                                 self.target_q_factor], self.td_gradient,
+                                                updates=self._gradient_updates, allow_input_downcast=True)
         self.fixpoint_update()
 
     def max_action(self, states):
@@ -87,7 +106,7 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
 
     def bellman_operator_update(self, states, actions, next_states, rewards, target_factors):
         self._update_feed_dict(states, actions, rewards, next_states, target_factors)
-        return self._update(**self._feed_dict)
+        return super().bellman_operator_update(**self._feed_dict)
 
     def add_summaries(self, summary_writer, episode):
         raise NotImplementedError()
@@ -117,8 +136,11 @@ class TemporalDifferenceLearnerV(TemporalDifferenceLearner):
             assert False
 
         super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, td_error)
-        self.bellman_operator_update = theano.function([self.state, self.next_state, self.reward, self.target_factor],
-                                                       updates=self._gradient_updates, allow_input_downcast=True)
+        self._update = theano.function([self.state, self.next_state, self.reward, self.target_factor],
+                                       updates=self._gradient_updates, allow_input_downcast=True)
+        self._update_with_get = theano.function([self.state, self.next_state, self.reward, self.target_factor],
+                                                self.td_gradient, updates=self._gradient_updates,
+                                                allow_input_downcast=True)
         self.fixpoint_update()
 
     def value(self, states):

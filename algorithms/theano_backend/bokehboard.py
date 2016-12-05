@@ -42,25 +42,53 @@ class _Bokehboard:
                                                          fill_alpha=0.4 - 0.2*(i/len(self._quantiles)))
                              for i, quantile in enumerate(self._quantiles)}
             self._last_quantile_y = {quantile: [0, 0] for quantile in self._quantiles}
-            self._last_x = {quantile: 0 for quantile in self._quantiles}
+            self._last_x = 0
             for quantile in self._quantiles:
                 self._patches[quantile].data_source = self._quantile_data[quantile]
+            self._readjust_count = 0
+            self._subsample = 1
+            self._point_count = 0
 
         def add_point(self, x, ys):
-            self._mean_data.stream({'x': [x], 'y': [np.mean(ys)]})
-            self._median_data.stream({'x': [x], 'y': [np.median(ys)]})
-            for quantile in self._quantiles:
-                last_y = self._last_quantile_y[quantile]
-                y = [np.percentile(ys, 100-quantile), np.percentile(ys, quantile)]
-                self._quantile_data[quantile].stream({'xs': [[self._last_x, x, x, self._last_x]],
-                                                      'ys': [[last_y[0], y[0], y[1], last_y[1]]]})
-                self._last_quantile_y[quantile] = y
-            self._last_x = x
+            self._point_count += 1
+            if self._point_count % self._subsample == 0:
+                self._mean_data.stream({'x': [x], 'y': [np.mean(ys)]})
+                self._median_data.stream({'x': [x], 'y': [np.median(ys)]})
+                for quantile in self._quantiles:
+                    last_y = self._last_quantile_y[quantile]
+                    y = [np.percentile(ys, 100-quantile), np.percentile(ys, quantile)]
+                    self._quantile_data[quantile].stream({'xs': [[self._last_x, x, x, self._last_x]],
+                                                          'ys': [[last_y[0], y[0], y[1], last_y[1]]]})
+                    self._last_quantile_y[quantile] = y
+                self._last_x = x
+                self._readjust_count += 1
+                if self._readjust_count >= 100:
+                    self._readjust()
+
+        def _readjust(self):
+            print("readjust")
+            self._readjust_count = 10
+            self._subsample *= 10
+            # for quantile in self._quantiles:
+            #     xs = []
+            #     ys = []
+            #     quantile_data = self._quantile_data[quantile].data
+            #     for i in range(10, len(quantile_data['xs']), 10):
+            #         xs.append([quantile_data['xs'][i - 10][0], quantile_data['xs'][i][0],
+            #                    quantile_data['xs'][i][3], quantile_data['xs'][i - 10][3]])
+            #         ys.append([quantile_data['ys'][i - 10][0], quantile_data['ys'][i][0],
+            #                    quantile_data['ys'][i][3], quantile_data['ys'][i - 10][3]])
+            #     xs.append([quantile_data['xs'][i][0], quantile_data['xs'][-1][1],
+            #                quantile_data['xs'][-1][2], quantile_data['xs'][i][3]])
+            #     ys.append([quantile_data['ys'][i][0], quantile_data['ys'][-1][1],
+            #                quantile_data['ys'][-1][2], quantile_data['ys'][i][3]])
+            #     self._quantile_data[quantile].data.update(xs=xs, ys=ys)
+
 
     LINE_PLOT = 0
     HISTOGRAM_PLOT = 1
 
-    def __init__(self, session_name=None, plot_frequency=1):
+    def __init__(self, session_name=None, plot_frequency=0.05):
         bokeh.io.curstate().autoadd = False
         self._watches = []
         self._python_vars = {}
@@ -106,9 +134,12 @@ class _Bokehboard:
     def update(self):
         self._update_counter += 1
         current_time = time.time()
-        if self._last_update + self._plot_frequency <= current_time:
+        if self.ready_for_update():
             self._last_update = current_time
             self._update()
+
+    def ready_for_update(self):
+        return self._last_update + self._plot_frequency <= time.time()
 
     def _update(self):
         for desc, var, plot in self._watches:

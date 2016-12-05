@@ -221,7 +221,7 @@ class DQN:
             #     f.write(trace.generate_chrome_trace_format())
             # sys.exit(0)
 
-            mini_batch_q, td_loss = self._td_learner.bellman_operator_update(transformed_states, actions,
+            self._td_learner.bellman_operator_update(transformed_states, actions,
                                                                              transformed_next_states, rewards,
                                                                              target_q_factor)
 
@@ -229,8 +229,8 @@ class DQN:
                 self._update_counter = 0
                 self._td_learner.fixpoint_update()
 
-            return Statistics(np.mean(mini_batch_q), self._exploration.epsilon)
-        return Statistics(0, self._exploration.epsilon)
+            # return Statistics(np.mean(mini_batch_q), self._exploration.epsilon)
+        # return Statistics(0, self._exploration.epsilon)
 
     def max_action(self, state):
         """

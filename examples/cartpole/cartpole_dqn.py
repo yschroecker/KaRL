@@ -29,9 +29,9 @@ create_summaries = True
 def build_network():
     l_in = lasagne.layers.InputLayer((None, 4 * history_length))
     l_hidden = lasagne.layers.DenseLayer(l_in, 80, nonlinearity=lasagne.nonlinearities.rectify,
-                                         W=lasagne.init.HeUniform(gain='relu'))
+                                         W=lasagne.init.HeUniform(gain='relu'), name='Q_hidden')
     l_out = lasagne.layers.DenseLayer(l_hidden, num_actions, nonlinearity=lasagne.nonlinearities.linear,
-                                      W=lasagne.init.HeUniform())
+                                      W=lasagne.init.HeUniform(), name='Q_out')
     return functools.partial(lasagne.layers.get_output, l_out), lasagne.layers.get_all_params(l_out)
 
 
@@ -83,6 +83,6 @@ if __name__ == '__main__':
 
         util.gym_env.main_loop(env, learner, restore=False,
                                num_time_steps=200,
-                               reward_threshold=195,
+                               reward_threshold=295,
                                save_model_directory='/tmp/cartpole')  # TODO: remove backups for cartpole
 

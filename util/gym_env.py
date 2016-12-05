@@ -98,14 +98,14 @@ def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold
             action = learner.get_action(state)
             next_state, reward, is_terminal, _ = env.step(action)
             if (episode * num_time_steps + t) % update_every == 0:
-                update_result = learner.update(state, action, next_state, reward, is_terminal)
+                learner.update(state, action, next_state, reward, is_terminal)
             cumulative_reward += reward * discount_factor**t
             if is_terminal:
                 break
             state = next_state
         reward_window.append(cumulative_reward)
         reward_sma = np.mean(reward_window)
-        trange.set_description("Episode %d: %f - %r" % (episode, reward_sma, update_result))
+        trange.set_description("Episode %d: %f" % (episode, reward_sma))
         if reward_threshold is not None and len(reward_window) == 100 and np.mean(reward_window) > reward_threshold:
             break
 
