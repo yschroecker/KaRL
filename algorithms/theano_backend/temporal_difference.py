@@ -26,27 +26,26 @@ class TemporalDifferenceLearner(metaclass=abc.ABCMeta):
         self._create_summaries = create_summaries
         if create_summaries:
             self._bokehboard = algorithms.theano_backend.bokehboard.Bokehboard()
+            network = self._bokehboard.board_builder.add_network("Online TD Network")
             for online_weight in self._online_weights:
-                self._bokehboard.add_tensor_variable("online_network: {}".format(online_weight.name), online_weight,
-                                                     self._bokehboard.HISTOGRAM_PLOT)
-                name = self._gradient_name(online_weight)
-                self._bokehboard.add_python_variable(name, self._bokehboard.HISTOGRAM_PLOT,
-                                                     **{name: np.zeros_like(online_weight.get_value())})
+                network.add_parameter("online." + online_weight.name, online_weight, self._gradient_name(online_weight))
+
+        self._dbg_count = 0
 
     def fixpoint_update(self):
         self._copy_weights()
 
     def bellman_operator_update(self, *args, **kwargs):
         if self._create_summaries and self._bokehboard.ready_for_update():
-            gradient = self._update_with_get(*args, **kwargs)
-            for var, var_gradient in zip(self._online_weights, gradient):
+            gradients = self._update_with_get(*args, **kwargs)
+            for var, var_gradient in zip(self._online_weights, gradients):
                 name = self._gradient_name(var)
                 self._bokehboard.update_python_variable(**{name: var_gradient})
         else:
             self._update(*args, **kwargs)
 
     def _gradient_name(self, online_weight):
-        return "online_network: {}_gradient".format(online_weight.name)
+        return "online.{}.gradient".format(online_weight.name)
 
 
 class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
@@ -88,12 +87,36 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
         td_error = self.reward + discount_factor * self.target_q_factor * self._max_next_q - q_a
 
         super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, td_error)
-        self._update = theano.function([self.state, self.action, self.reward, self.next_state, self.target_q_factor],
-                                       updates=self._gradient_updates, allow_input_downcast=True)
-        self._update_with_get = theano.function([self.state, self.action, self.reward, self.next_state,
-                                                 self.target_q_factor], self.td_gradient,
-                                                updates=self._gradient_updates, allow_input_downcast=True)
+        mean_q = T.mean(q_a)
+        mean_r = T.mean(self.reward)
+        mean_td_error = T.mean(td_error)
+        self._update_fn = theano.function([self.state, self.action, self.reward, self.next_state, self.target_q_factor],
+                                          [mean_q, mean_r, mean_td_error], updates=self._gradient_updates,
+                                          allow_input_downcast=True)
+        self._update_with_get_fn = theano.function([self.state, self.action, self.reward, self.next_state,
+                                                    self.target_q_factor], [mean_q, mean_r, mean_td_error] +
+                                                   self.td_gradient,
+                                                   updates=self._gradient_updates, allow_input_downcast=True)
         self.fixpoint_update()
+
+        if create_summaries:
+            self._bokehboard.board_builder.add_statistic_pyvar("sample_q", 0)
+            self._bokehboard.board_builder.add_statistic_pyvar("sample_r", 0)
+            self._bokehboard.board_builder.add_statistic_pyvar("td_error", 0)
+
+    def _update(self, *args, **kwargs):
+        q_a, reward, td_error = self._update_fn(*args, **kwargs)
+        self._add_summary_statistics(q_a, reward, td_error)
+
+    def _update_with_get(self, *args, **kwargs):
+        result = self._update_with_get_fn(*args, **kwargs)
+        q_a, reward, td_error = result[0:3]
+        self._add_summary_statistics(q_a, reward, td_error)
+        return result[3:]
+
+    def _add_summary_statistics(self, q_a, reward, td_error):
+        if self._create_summaries:
+            self._bokehboard.update_python_variable(sample_q=q_a, sample_r=reward, td_error=td_error)
 
     def max_action(self, states):
         return self._max_action(states)
@@ -146,4 +169,41 @@ class TemporalDifferenceLearnerV(TemporalDifferenceLearner):
     def value(self, states):
         return self._online_network(states)[:, 0]
 
+
+class TemporalDifferenceLearnerLSD(TemporalDifferenceLearner):
+    def __init__(self, network_builder, optimizer, state_dim, policy, policy_param,
+                 loss_clip_threshold=None, loss_clip_mode=None, create_summaries=False, discount_factor=1):
+        param_shape = policy_param.get_value().flatten().shape[0]
+        self._online_network, self._online_weights, self._online_bias = network_builder(param_shape)
+        self._target_network, self._target_weights, self._target_bias = network_builder(param_shape)
+
+        state_tensor_type = T.TensorType('float32', (False,)*(len(state_dim) + 1))
+        self.state = state_tensor_type("state")
+        self.prev_action = T.ivector("prev_action")
+        self.prev_state = state_tensor_type("prev_state")
+        self.dlnpi = T.jacobian(policy.log(self.prev_state, self.prev_action), policy_param)
+        self.dlnpi = self.dlnpi.flatten(ndim=2)
+
+        self._lsd_online = self._online_network(self.state)
+        self._prev_lsd_target = self._target_network(self.prev_state)
+
+        target = discount_factor * self._prev_lsd_target + self.dlnpi
+        td_error = target - self._lsd_online
+
+        super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, td_error)
+        self._unnormalized_bellman_operator_update = theano.function([self.state, self.prev_state, self.prev_action],
+                                                                     updates=self._gradient_updates,
+                                                                     allow_input_downcast=True)
+        self.fixpoint_update()
+
+        self._mean_lsd = theano.function([self.state], [T.mean(self._lsd_online, axis=0)], allow_input_downcast=True)
+        self._train_states = None
+
+    def bellman_operator_update(self, states, prev_states, prev_actions):
+        self._unnormalized_bellman_operator_update(states, prev_states, prev_actions)
+        self._train_states = T.cast(states, 'floatX')
+        self._online_bias.set_value(self._online_bias.get_value() - np.array(self._mean_lsd(states)).flatten())
+
+    def lsd(self, states):
+        return self._online_network(T.cast(states, 'floatX'))
 
