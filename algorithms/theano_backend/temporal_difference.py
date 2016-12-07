@@ -1,4 +1,5 @@
 import theano
+import theano.gradient
 import theano.tensor as T
 import numpy as np
 import abc
@@ -10,13 +11,13 @@ class TemporalDifferenceLearner(metaclass=abc.ABCMeta):
         self._optimizer = optimizer
 
         if loss_clip_threshold is None:
-            self._td_loss = T.mean(td_error ** 2)
+            self._td_loss = T.sum(td_error ** 2)
         elif loss_clip_mode == 'linear':
             td_error = abs(td_error)
-            self._td_loss = T.mean(T.minimum(td_error, loss_clip_threshold) ** 2 +
-                                   T.maximum(td_error - loss_clip_threshold, 0))
+            self._td_loss = T.sum(T.minimum(td_error, loss_clip_threshold) ** 2 +
+                                  T.maximum(td_error - loss_clip_threshold, 0))
         elif loss_clip_mode == 'absolute':
-            self._td_loss = T.mean(T.clip(td_error, 0, loss_clip_threshold) ** 2)
+            self._td_loss = T.sum(T.clip(td_error, 0, loss_clip_threshold) ** 2)
         else:
             assert False
 
@@ -69,7 +70,8 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
             #     next_q_values_q_net = network_builder(self.next_state, True)
             # self._max_next_q = util.tensor.index(next_q_values_target_net, tf.argmax(next_q_values_q_net, 1))
             self._next_q_online = self._online_network(self.next_state)
-            self._max_next_q = self._next_q_target[:, T.argmax(self._next_q_online, axis=1)]
+            self._max_next_q = self._next_q_target[T.arange(T.shape(self._next_q_target)[0]),
+                                                   T.argmax(self._next_q_target, axis=1)]
         elif td_rule == 'q-learning':
             self._max_next_q = T.max(self._next_q_target, axis=1)
         elif td_rule == 'gBRM':
@@ -77,6 +79,7 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
             self._max_next_q = T.max(self._next_q_online, axis=1)
         else:
             assert False, "invalid td_rule for TD-Q"
+        self._max_next_q = theano.gradient.disconnected_grad(self._max_next_q)
 
         max_action = T.argmax(self._q_target, axis=1)
         self._max_action = theano.function([self.state], max_action, allow_input_downcast=True)
@@ -168,42 +171,4 @@ class TemporalDifferenceLearnerV(TemporalDifferenceLearner):
 
     def value(self, states):
         return self._online_network(states)[:, 0]
-
-
-class TemporalDifferenceLearnerLSD(TemporalDifferenceLearner):
-    def __init__(self, network_builder, optimizer, state_dim, policy, policy_param,
-                 loss_clip_threshold=None, loss_clip_mode=None, create_summaries=False, discount_factor=1):
-        param_shape = policy_param.get_value().flatten().shape[0]
-        self._online_network, self._online_weights, self._online_bias = network_builder(param_shape)
-        self._target_network, self._target_weights, self._target_bias = network_builder(param_shape)
-
-        state_tensor_type = T.TensorType('float32', (False,)*(len(state_dim) + 1))
-        self.state = state_tensor_type("state")
-        self.prev_action = T.ivector("prev_action")
-        self.prev_state = state_tensor_type("prev_state")
-        self.dlnpi = T.jacobian(policy.log(self.prev_state, self.prev_action), policy_param)
-        self.dlnpi = self.dlnpi.flatten(ndim=2)
-
-        self._lsd_online = self._online_network(self.state)
-        self._prev_lsd_target = self._target_network(self.prev_state)
-
-        target = discount_factor * self._prev_lsd_target + self.dlnpi
-        td_error = target - self._lsd_online
-
-        super().__init__(optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, td_error)
-        self._unnormalized_bellman_operator_update = theano.function([self.state, self.prev_state, self.prev_action],
-                                                                     updates=self._gradient_updates,
-                                                                     allow_input_downcast=True)
-        self.fixpoint_update()
-
-        self._mean_lsd = theano.function([self.state], [T.mean(self._lsd_online, axis=0)], allow_input_downcast=True)
-        self._train_states = None
-
-    def bellman_operator_update(self, states, prev_states, prev_actions):
-        self._unnormalized_bellman_operator_update(states, prev_states, prev_actions)
-        self._train_states = T.cast(states, 'floatX')
-        self._online_bias.set_value(self._online_bias.get_value() - np.array(self._mean_lsd(states)).flatten())
-
-    def lsd(self, states):
-        return self._online_network(T.cast(states, 'floatX'))
 
