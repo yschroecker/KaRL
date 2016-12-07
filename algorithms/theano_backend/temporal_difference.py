@@ -85,7 +85,6 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
         self._max_action = theano.function([self.state], max_action, allow_input_downcast=True)
 
         q_a = self._q_online[T.arange(T.shape(self._q_online)[0]), self.action]
-        self._action = theano.printing.Print("q_a")(q_a)
 
         td_error = self.reward + discount_factor * self.target_q_factor * self._max_next_q - q_a
 
