@@ -49,13 +49,14 @@ def collect_trajectories(env, learner, num_time_steps, num_iterations, reward_ho
 
 def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold=None, num_iterations=10000,
               enable_monitor=False, discount_factor=1,
-              summary_frequency=None, do_render=False, save_model_directory=None, save_model_frequency=10,
-              save_model_horizon=10, restore=False, episodic=True, episode_hooks=[], update_every=1):
+              create_summaries=False, do_render=False, save_model_directory=None, save_model_frequency=10,
+              save_model_horizon=10, save_models=True, restore=False, episodic=True, episode_hooks=[],
+              update_every=1):
     sys.setrecursionlimit(50000)
-    bokehboard = algorithms.theano_backend.bokehboard.Bokehboard()
-    bokehboard.show()
 
-    if summary_frequency is not None:
+    if create_summaries:
+        bokehboard = algorithms.theano_backend.bokehboard.Bokehboard()
+        bokehboard.show()
         if len(sys.argv) < 2:
             print("%s takes one argument: the output directory of monitor and summaries data" % sys.argv[0])
             sys.exit(1)
@@ -91,7 +92,8 @@ def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold
         cumulative_reward = 0
         t = 0
         while num_time_steps is None or t < num_time_steps:
-            bokehboard.update()
+            if create_summaries:
+                bokehboard.update()
             t += 1
             if do_render:
                 env.render()
@@ -109,7 +111,8 @@ def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold
         if reward_threshold is not None and len(reward_window) == 100 and np.mean(reward_window) > reward_threshold:
             break
 
-        if save_model_directory is not None and episode != start_iteration and episode % save_model_frequency == 0:
+        if save_model_directory is not None and episode != start_iteration and episode % save_model_frequency == 0\
+                and save_models:
             open('%s/__backup_episode_%d' % (save_model_directory, episode), 'w').close()
             learner.save(save_model_directory, "backup_%d" % ((episode//save_model_frequency) % save_model_horizon))
 
