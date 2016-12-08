@@ -50,7 +50,7 @@ def collect_trajectories(env, learner, num_time_steps, num_iterations, reward_ho
 def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold=None, num_iterations=10000,
               enable_monitor=False, discount_factor=1,
               create_summaries=False, do_render=False, save_model_directory=None, save_model_frequency=10,
-              save_model_horizon=10, save_models=True, restore=False, episodic=True, episode_hooks=[],
+              save_model_horizon=10, save_models=True, restore=False, reset_every=1, episode_hooks=[],
               update_every=1):
     sys.setrecursionlimit(50000)
 
@@ -82,10 +82,10 @@ def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold
             os.makedirs(save_model_directory)
 
     trange = tqdm.trange(start_iteration, num_iterations)
-    if not episodic:
+    if reset_every == -1 or restore:
         state = env.reset()
     for episode in trange:
-        if episodic:
+        if episode % reset_every == 0:
             state = env.reset()
         for hook in episode_hooks:
             hook(learner, episode)

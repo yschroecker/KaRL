@@ -16,6 +16,7 @@ history_length = 1
 state_dim = [4]
 num_actions = 2
 optimizer = functools.partial(lasagne.updates.rmsprop, learning_rate=1e-3, rho=0.995, epsilon=1e-2)
+# optimizer = functools.partial(lasagne.updates.sgd, learning_rate=1e-4)
 update_interval = 1
 freeze_interval = 1
 discount_factor = 0.9
@@ -84,5 +85,6 @@ if __name__ == '__main__':
         util.gym_env.main_loop(env, learner, restore=False,
                                num_time_steps=200,
                                reward_threshold=295,
+                               create_summaries=create_summaries,
                                save_model_directory='/tmp/cartpole')  # TODO: remove backups for cartpole
 

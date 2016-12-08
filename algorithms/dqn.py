@@ -163,6 +163,8 @@ class DQN:
     def save(self, dir_path, name):
         with open(self._save_path(dir_path, name + "_exp"), 'wb') as f:
             pickle.dump(self._samples_since_update, f)
+        with open(self._save_path(dir_path, name + "_exploration"), 'wb') as f:
+            pickle.dump(self._exploration, f)
         with open(self._save_path(dir_path, name + "_net"), 'wb') as f:
             pickle.dump(self._td_learner, f)
         self._experience_replay_memory.save(dir_path, name)
@@ -170,6 +172,8 @@ class DQN:
     def load(self, dir_path, name, experience_memory_type=UniformExperienceReplayMemory):
         with open(self._save_path(dir_path, name + "_exp"), 'rb') as f:
             self._samples_since_update = pickle.load(f)
+        with open(self._save_path(dir_path, name + "_exploration"), 'rb') as f:
+            self._exploration = pickle.load(f)
         with open(self._save_path(dir_path, name + "_net"), 'rb') as f:
             self._td_learner = pickle.load(f)
         self._experience_replay_memory = experience_memory_type.load(dir_path, name)

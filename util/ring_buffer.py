@@ -38,8 +38,9 @@ class RingBuffer:
 
         with h5py.File(dir_path + '/ringbuffers') as file:
             if name in file:
-                del file[name]
-            saved_data = file.create_dataset(name, data=self._ringbuffer)
+                saved_data = file[name]
+            else:
+                saved_data = file.create_dataset(name, data=self._ringbuffer, compression='gzip')
             saved_data.attrs['size'] = self.size
             saved_data.attrs['head'] = self._head
             saved_data.attrs['use_disk'] = self._use_disk
@@ -92,8 +93,9 @@ class RingBufferCollection:
     def save(self, dir_path, name):
         with h5py.File(dir_path + '/ringbuffers') as file:
             if name in file:
-                del file[name]
-            group = file.create_group(name)
+                group = file[name]
+            else:
+                group = file.create_group(name)
             group.attrs['num_buffers'] = len(self._buffers)
             group.attrs['capacity'] = self._capacity
 
