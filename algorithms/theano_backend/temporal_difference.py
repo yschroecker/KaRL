@@ -5,6 +5,8 @@ import numpy as np
 import abc
 import algorithms.theano_backend.bokehboard
 
+_profile_mode = False
+
 
 class TemporalDifferenceLearner(metaclass=abc.ABCMeta):
     def __init__(self, optimizer, loss_clip_threshold, loss_clip_mode, create_summaries, td_error):
@@ -94,11 +96,11 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
         mean_td_error = T.mean(td_error)
         self._update_fn = theano.function([self.state, self.action, self.reward, self.next_state, self.target_q_factor],
                                           [mean_q, mean_r, mean_td_error], updates=self._gradient_updates,
-                                          allow_input_downcast=True)
+                                          allow_input_downcast=False, profile=_profile_mode)
         self._update_with_get_fn = theano.function([self.state, self.action, self.reward, self.next_state,
                                                     self.target_q_factor], [mean_q, mean_r, mean_td_error] +
                                                    self.td_gradient,
-                                                   updates=self._gradient_updates, allow_input_downcast=True)
+                                                   updates=self._gradient_updates, allow_input_downcast=False)
         self.fixpoint_update()
 
         if create_summaries:
@@ -131,7 +133,9 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
 
     def bellman_operator_update(self, states, actions, next_states, rewards, target_factors):
         self._update_feed_dict(states, actions, rewards, next_states, target_factors)
-        return super().bellman_operator_update(**self._feed_dict)
+        result = super().bellman_operator_update(**self._feed_dict)
+        if _profile_mode:
+            self._update_fn.print_summary()
 
     def add_summaries(self, summary_writer, episode):
         raise NotImplementedError()

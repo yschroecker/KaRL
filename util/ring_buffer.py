@@ -5,7 +5,7 @@ import os
 
 
 class RingBuffer:
-    def __init__(self, capacity, element_dim, file_path=None, dtype=np.float16):
+    def __init__(self, capacity, element_dim, file_path=None, dtype=np.float32):
         self._use_disk = file_path is not None
         if self._use_disk:
             file = h5py.File(file_path)

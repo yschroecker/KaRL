@@ -24,7 +24,7 @@ exploration = dqn.EpsilonGreedy(0)
 buffer_size = 10000000
 mini_batch_size = 500
 td_rule = 'q-learning'
-create_summaries = True
+create_summaries = False
 
 
 def build_network():

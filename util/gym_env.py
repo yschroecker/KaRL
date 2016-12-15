@@ -90,16 +90,18 @@ def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold
         for hook in episode_hooks:
             hook(learner, episode)
         cumulative_reward = 0
+        total_t = 0
         t = 0
         while num_time_steps is None or t < num_time_steps:
             if create_summaries:
                 bokehboard.update()
             t += 1
+            total_t += 1
             if do_render:
                 env.render()
             action = learner.get_action(state)
             next_state, reward, is_terminal, _ = env.step(action)
-            if (episode * num_time_steps + t) % update_every == 0:
+            if total_t % update_every == 0:
                 learner.update(state, action, next_state, reward, is_terminal)
             cumulative_reward += reward * discount_factor**t
             if is_terminal:

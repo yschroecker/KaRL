@@ -41,7 +41,8 @@ class EnvWrapper:
 
     def step(self, action):
         next_state, reward, is_terminal, info = self._env.step(action)
-        return transform_state(next_state), reward, is_terminal, info
+        return transform_state(next_state), min(1, reward), is_terminal, info
+
 
 def init_live(gym_env):
     gym_env.step(1)
@@ -63,7 +64,7 @@ if __name__ == '__main__':
         state_dim=[84, 84],
         num_actions=gym_env.action_space.n,
         environment=EnvWrapper(gym_env),
-        optimizer=functools.partial(lasagne.updates.rmsprop, learning_rate=0.00025, rho=0.95, epsilon=0.01),
+        optimizer=functools.partial(lasagne.updates.rmsprop, learning_rate=0.0005, rho=0.95, epsilon=0.01),
         update_interval=1,
         replay_memory_type=dqn.UniformExperienceReplayMemory,
         freeze_interval=10000,
@@ -78,7 +79,7 @@ if __name__ == '__main__':
                                       epsilon_decay=1e-6,
                                       min_epsilon=0.1,
                                       decay_type='linear'),
-        create_summaries=True)
+        create_summaries=False)
 
     test_mode = len(sys.argv) >= 3
 
@@ -94,6 +95,6 @@ if __name__ == '__main__':
         tqdm_range = tqdm.trange(500000)
     logging.getLogger('gym.monitoring.video_recorder').setLevel(logging.ERROR)
 
-    util.gym_env.main_loop(env, learner, None, 1000, num_iterations=10000000, enable_monitor=True,
+    util.gym_env.main_loop(env, learner, None, 1000, num_iterations=10000000, enable_monitor=False,
                            save_model_directory=sys.argv[2], save_model_frequency=50)
 
