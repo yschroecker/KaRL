@@ -14,7 +14,7 @@ class UniformExperienceReplayMemory:
     Simplest experience replay memory. DQN stores new samples in this memory and samples minibatches from this memory.
     In this case the samples are sampled uniformly
     """
-    def __init__(self, state_dim, buffer_size=1, mini_batch_size=1, *args, **kwargs):
+    def __init__(self, state_dim, buffer_size=1, mini_batch_size=1, state_dtype=np.float32, *args, **kwargs):
         """
         Default parmaeters correspond to regular Q learning without memory.
         :param state_dim:
@@ -32,7 +32,8 @@ class UniformExperienceReplayMemory:
         """
         self._state_dim = state_dim
         self._buffer = util.ring_buffer.RingBufferCollection(buffer_size, [self._state_dim, 1, self._state_dim, 1, 1],
-                                                             *args, **kwargs)
+                                                             dtypes=[state_dtype, np.float32, state_dtype, np.float32,
+                                                                     np.float32], *args, **kwargs)
         self._mini_batch_size = mini_batch_size
 
     @staticmethod
@@ -225,8 +226,8 @@ class DQN:
             #     f.write(trace.generate_chrome_trace_format())
             # sys.exit(0)
 
-            self._td_learner.bellman_operator_update(transformed_states, actions, transformed_next_states, rewards,
-                                                     target_q_factor)
+            self._td_learner.bellman_operator_update(np.array(transformed_states), actions,
+                                                     np.array(transformed_next_states), rewards, target_q_factor)
 
             if self._update_counter >= self._freeze_interval:
                 self._update_counter = 0

@@ -71,7 +71,10 @@ def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold
         backups = glob.glob('%s/__backup_episode_*' % save_model_directory)
         episodes = [int(re.findall(r'\d+', backup)[-1]) for backup in backups]
         start_iteration = np.max(episodes)
-        learner.load(save_model_directory, "backup_%d" % ((start_iteration//save_model_frequency) % save_model_horizon))
+        save_id = ((start_iteration//save_model_frequency) % save_model_horizon)
+        learner.load(save_model_directory, "backup_%d" % save_id)
+        if getattr(env, 'load', None):
+            env.load(save_model_directory, "history_%d" % save_id)
     else:
         start_iteration = 0
 
@@ -116,7 +119,10 @@ def main_loop(env, learner, num_time_steps, reward_horizon=100, reward_threshold
         if save_model_directory is not None and episode != start_iteration and episode % save_model_frequency == 0\
                 and save_models:
             open('%s/__backup_episode_%d' % (save_model_directory, episode), 'w').close()
-            learner.save(save_model_directory, "backup_%d" % ((episode//save_model_frequency) % save_model_horizon))
+            save_id = ((episode//save_model_frequency) % save_model_horizon)
+            learner.save(save_model_directory, "backup_%d" % save_id)
+            if getattr(env, 'save', None):
+                env.save(save_model_directory, "history_%d" % save_id)
 
         # if summary_frequency is not None and episode % summary_frequency == summary_frequency - 1:
         #     learner.add_summaries(summary_writer, episode)

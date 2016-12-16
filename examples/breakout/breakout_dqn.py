@@ -73,7 +73,7 @@ if __name__ == '__main__':
         td_rule='q-learning',
         history_length=4,
         mini_batch_size=32,
-        buffer_size=900000,
+        buffer_size=500000,
         loss_clip_threshold=1,
         exploration=dqn.EpsilonGreedy(initial_epsilon=1,
                                       epsilon_decay=1e-6,
@@ -96,5 +96,5 @@ if __name__ == '__main__':
     logging.getLogger('gym.monitoring.video_recorder').setLevel(logging.ERROR)
 
     util.gym_env.main_loop(env, learner, None, 1000, num_iterations=10000000, enable_monitor=False,
-                           save_model_directory=sys.argv[2], save_model_frequency=50)
+                           save_model_directory=sys.argv[2], save_model_frequency=50, restore=True)
 
