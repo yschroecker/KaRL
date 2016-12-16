@@ -82,9 +82,10 @@ if __name__ == '__main__':
                 td_rule=td_rule,
                 create_summaries=create_summaries)
 
-        util.gym_env.main_loop(env, learner, restore=False,
+        util.gym_env.main_loop(env, learner, restore=True,
                                num_time_steps=200,
                                reward_threshold=295,
                                create_summaries=create_summaries,
+                               save_model_frequency=10,
                                save_model_directory='/tmp/cartpole')  # TODO: remove backups for cartpole
 

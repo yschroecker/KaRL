@@ -109,7 +109,7 @@ class HistoryStateManager:
         :return:
             replay memory instance
         """
-        return memory_type(self._state_id_dim, self._buffer_size, mini_batch_size)
+        return memory_type(self._state_id_dim, self._buffer_size, mini_batch_size, dtype=np.int64)
 
     @property
     def _state_id_dim(self):
