@@ -96,5 +96,5 @@ if __name__ == '__main__':
     logging.getLogger('gym.monitoring.video_recorder').setLevel(logging.ERROR)
 
     util.gym_env.main_loop(env, learner, None, 1000, num_iterations=10000000, enable_monitor=False,
-                           save_model_directory=sys.argv[2], save_model_frequency=50, restore=True)
+                           save_model_directory=sys.argv[2], save_model_frequency=1000, restore=False)
 

@@ -95,7 +95,7 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
         mean_r = T.mean(self.reward)
         mean_td_error = T.mean(td_error)
         self._update_fn = theano.function([self.state, self.action, self.reward, self.next_state, self.target_q_factor],
-                                          [mean_q, mean_r, mean_td_error], updates=self._gradient_updates,
+                                          updates=self._gradient_updates,
                                           allow_input_downcast=False, profile=_profile_mode)
         self._update_with_get_fn = theano.function([self.state, self.action, self.reward, self.next_state,
                                                     self.target_q_factor], [mean_q, mean_r, mean_td_error] +
@@ -109,8 +109,8 @@ class TemporalDifferenceLearnerQ(TemporalDifferenceLearner):
             self._bokehboard.board_builder.add_statistic_pyvar("td_error", 0)
 
     def _update(self, *args, **kwargs):
-        q_a, reward, td_error = self._update_fn(*args, **kwargs)
-        self._add_summary_statistics(q_a, reward, td_error)
+        self._update_fn(*args, **kwargs)
+        # self._add_summary_statistics(q_a, reward, td_error)
 
     def _update_with_get(self, *args, **kwargs):
         result = self._update_with_get_fn(*args, **kwargs)
